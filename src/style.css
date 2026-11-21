@@ -293,3 +293,7 @@ body.touch .card { touch-action: manipulation; user-select: none; -webkit-user-s
 .say { cursor: pointer; min-height: 3.6em; }
 .say.typing::after { content: '▌'; color: #d8642a; animation: blink .6s steps(2) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
+.event .talk { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; margin: 8px 0 4px; clear: both; }
+.event .talk .btn.asked { opacity: .65; }
+.event .talkline { font-style: italic; color: #ffd9b0; min-height: 0; }
+.event .talkline:empty { display: none; }
