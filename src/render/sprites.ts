@@ -1,4 +1,6 @@
 import { Texture } from 'pixi.js';
+import { paintDoll } from './doll';
+import type { Look } from '../sim/types';
 
 // Original 16x16 pixel art, drawn as character grids. '.' is transparent.
 
@@ -289,21 +291,7 @@ export function buildSprites(): Record<string, SpriteSet> {
 }
 
 
-// ---- the spellwright paper doll: five heads, recoloured robe, trim, orb and shadow
-const HEAD_ROWS: string[][] = [
-  ['...ooo...kkk....', '....o...khhhk...', '....s..khpppPk..', '....s.khpppppPk.', '....s.khkkkkkpk.', '....s.kkkekekkk.', '....sskhkkkkkpk.'],
-  ['...ooo....k.....', '....o....kpk....', '....s...kpPpk...', '....s.kkkkkkkkk.', '....s..kkkkkkk..', '....s..kkekekk..', '....ss.khkkkhk..'],
-  ['...ooo...kkk....', '....o...kiiik...', '....s..kiIIIik..', '....s..kiiiiik..', '....s..kkkkkkk..', '....s..kiekeik..', '....ss.kiiiiik..'],
-  ['...ooo.k.....k..', '....o..kk...kk..', '....s...khhhk...', '....s..khpppPk..', '....s.khkkkkkpk.', '....s.kkkekekkk.', '....sskhkkkkkpk.'],
-  ['...ooo.c.c.c....', '....o..ccccc....', '....s..kkkkkk...', '....s.kpbbbbpk..', '....s.kpbkbkpk..', '....s.kpbbbbpk..', '....sskpkbbkpk..'],
-];
-
-export interface LookColors { robe: string; robeHi: string; trim: string; orb: string; skin: string; head: number }
-export function wizardSprite(c: LookColors): SpriteSet {
-  const base = SPRITES.wizard;
-  const rows = [base.r[0], ...(HEAD_ROWS[c.head] ?? HEAD_ROWS[0]), ...base.r.slice(8)];
-  return spriteSet({
-    p: { ...base.p, p: c.robe, P: c.robeHi, g: c.trim, o: c.orb, e: c.orb, h: c.skin, i: '#5d5a62', I: '#9a979e', c: '#e0b040', b: '#e9dcc0' },
-    r: rows,
-  });
+// ---- the spellwright paper doll (see doll.ts)
+export function wizardSprite(look: Look): SpriteSet {
+  return spriteSet(paintDoll(look));
 }

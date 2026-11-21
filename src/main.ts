@@ -10,7 +10,7 @@ import { predictThreats } from './sim/ai';
 import { findPath } from './sim/path';
 import { cantAfford, spellCost, type SpellPrice } from './sim/spell';
 import { UNITS, unitName } from './sim/units';
-import type { Action, PlayerState, Pt, Stat, Unit, World } from './sim/types';
+import type { Action, Look, PlayerState, Pt, Stat, Unit, World } from './sim/types';
 import { AFFIXES, RUNES } from './sim/runes';
 import { LocalTransport, NetTransport, type Transport } from './net/transport';
 import { dailySeed, DEFAULT_SERVER } from './net/protocol';
@@ -18,7 +18,7 @@ import { BIOMES } from './sim/biomes';
 import { CLASSES, GEAR, INSCRIBE_COST, LEARN_COST, MAT_IDS, MAT_NAMES, MUTATIONS, ORIGINS, RECIPES, TRAITS } from './sim/character';
 import { EVENTS } from './sim/events';
 import { ACHIEVEMENTS, bankRun, buyUnlock, checkAchievements, CURSE_ASH, CURSES, meta, observe, runOptions, saveMeta, setupFor, UNLOCKS } from './ui/meta';
-import { openCreator, portrait } from './ui/creator';
+import { openCreator, portrait, whoLine } from './ui/creator';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
 import { isMuted, play, setMuted } from './ui/sfx';
 import { music } from './ui/music';
@@ -739,7 +739,7 @@ function startSolo(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
 function charLine(): string {
   const p = setupFor();
   const traits = (p.traits ?? []).map((t) => TRAITS[t].name).join(', ');
-  return `<div class="who"><img alt="" src="${portrait(meta.profile.look, 4)}"><div><b>${esc(p.name)}</b><br>${CLASSES[p.cls ?? 'spellwright'].name} · ${esc(ORIGINS[p.origin ?? 'knight'].name)}${traits ? `<br><small>${esc(traits)}</small>` : ''}</div></div>`;
+  return `<div class="who"><img alt="" src="${portrait(meta.profile.look, 4)}"><div><b>${esc(p.name)}</b><br>${esc(whoLine(p))}${traits ? `<br><small>${esc(traits)}</small>` : ''}</div></div>`;
 }
 
 function curseHtml(): string {
@@ -851,7 +851,7 @@ function coopScreen() {
     t.onLobby = (code, players, isHost, opts) => {
       const curses = (opts.curses ?? []).map((c) => CURSES[c]?.name ?? c).join(', ');
       showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2><p>Share this code with your companions.${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
-        <div class="plist">${players.map((q) => `${esc(q.name)} <small>${CLASSES[q.cls ?? 'spellwright']?.name ?? ''} · ${esc(ORIGINS[q.origin ?? 'knight']?.name ?? '')}</small>`).join('<br>')}</div>
+        <div class="plist">${players.map((q) => `<span class="who small"><img alt="" src="${portrait(q.look as Look, 3)}"> ${esc(q.name)} <small>${esc(whoLine(q))}</small></span>`).join('<br>')}</div>
         ${isHost ? '<p class="friend" id="friendLink2"></p>' : ''}
         <div class="row">${isHost ? '<button type="button" class="btn ember" id="go">Begin</button>' : '<p>Waiting for the host to begin…</p>'}</div></div>`);
       showFriendLink(document.getElementById('friendLink2'));

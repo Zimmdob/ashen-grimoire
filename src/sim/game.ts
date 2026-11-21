@@ -12,7 +12,7 @@ import { choirRevive, spawnShade, think } from './ai';
 import { makeElder, makeUnit, UNITS } from './units';
 import { BIOMES, makeRoute } from './biomes';
 import { chooseEvent, EVENT_IDS } from './events';
-import { DEFAULT_LOOK, emptyGear, emptyMats, GEAR, INSCRIBE_COST, LEARN_COST, MUTATIONS, ORIGINS, RECIPES, traitBudget, TRAITS } from './character';
+import { cleanLook, emptyGear, emptyMats, GEAR, INSCRIBE_COST, LEARN_COST, MUTATIONS, ORIGINS, RECIPES, traitBudget, TRAITS } from './character';
 
 // Turn state machine:
 //   planning --(every standing player ends turn)--> allies --> enemies --> planning (next turn)
@@ -66,7 +66,7 @@ function makePlayer(w: World, p: PlayerSetup): PlayerState {
   const ps: PlayerState = {
     pid: p.pid, name: String(p.name || 'Spellwright').slice(0, 20), unitId: u.id, cards: [...STARTING_CARDS], uses: {},
     endedTurn: false, offer: [], picked: false, points: 0, ready: false, cls, runes: [], runeOffer: [], bountyPoints: 0,
-    origin, traits, look: { ...DEFAULT_LOOK, ...(p.look ?? {}) }, cardLevels: {},
+    origin, traits, look: cleanLook(p.look), cardLevels: {},
     oil: RULES.MAX_OIL, maxOil: RULES.MAX_OIL, satiety: RULES.START_SATIETY, starveLoss: 0, chill: 0, corruption: 0,
     mutations: [], mutationOffer: [], pendingMutations: 0, mats: emptyMats(), buffs: [], routeVote: -1, rested: false,
     hand: [], cage: [], maxCage: 0, gear: emptyGear(), bag: [], event: null,

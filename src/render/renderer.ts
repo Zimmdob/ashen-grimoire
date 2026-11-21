@@ -2,7 +2,6 @@ import { Application, Container, Graphics, RenderTexture, Sprite, Text, Texture,
 import type { FxKind, GameEvent, LevelSnap, Pickup, Pt, Unit, UnitStatus, World } from '../sim/types';
 import { isLiquid, TILE, T_LAVA, T_WATER } from '../sim/constants';
 import { BIOMES } from '../sim/biomes';
-import { ORBS, ROBES, ROBES_HI, SKINS, TRIMS } from '../sim/character';
 import { RULES } from '../sim/constants';
 import { UNITS } from '../sim/units';
 import { statusOf } from '../sim/combat';
@@ -259,11 +258,10 @@ export class GameRenderer {
     if (owner && type === 'wizard') {
       const ps = this.worldRef?.players.find((p) => p.pid === owner);
       if (ps) {
-        const l = ps.look;
-        const key = `${l.robe}-${l.trim}-${l.orb}-${l.head}-${l.skin}`;
+        const key = JSON.stringify(ps.look);
         let set = this.wizardSets.get(key);
         if (!set) {
-          set = wizardSprite({ robe: ROBES[l.robe] ?? ROBES[0], robeHi: ROBES_HI[l.robe] ?? ROBES_HI[0], trim: TRIMS[l.trim] ?? TRIMS[0], orb: ORBS[l.orb] ?? ORBS[0], skin: SKINS[l.skin] ?? SKINS[0], head: l.head });
+          set = wizardSprite(ps.look);
           this.wizardSets.set(key, set);
         }
         return set;

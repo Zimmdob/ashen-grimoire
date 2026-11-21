@@ -1,7 +1,7 @@
 // Character creation and the survival economy: classes, origins, traits and flaws, mutations,
 // materials, recipes, and the paper-doll palette. All plain data so the UI and the sim share it.
 
-import type { GearSlot, Mat, WizardClass } from './types';
+import type { GearSlot, Look, Mat, WizardClass } from './types';
 
 export interface ClassDef { name: string; pays: string; desc: string }
 export const CLASSES: Record<WizardClass, ClassDef> = {
@@ -92,13 +92,49 @@ export const INSCRIBE_COST = [0, 2, 3];
 export const LEARN_COST = 3;
 
 // ---- paper-doll palette
-export const ROBES = ['#4b2a5e', '#2a3a5e', '#5e2a2a', '#2a4a32', '#3a3a3a', '#5a4a2a', '#1e1e28', '#6a5a6a'];
-export const ROBES_HI = ['#7a4a96', '#4a6a96', '#96484a', '#4a7a56', '#5e5e5e', '#8a7444', '#3a3a4a', '#9a8a9a'];
+// ---- appearance (purely cosmetic: no race, gender or look changes any rule of play)
+export interface RaceDef { name: string; desc: string; skins: string[]; short?: boolean }
+export const RACES: RaceDef[] = [
+  { name: 'Human', desc: 'Stubborn, short-lived and everywhere.', skins: ['#f4d6bc', '#e6b996', '#cf9b74', '#b07a52', '#8d5a3a', '#6a4028', '#4a2a1a'] },
+  { name: 'Elf', desc: 'Long ears, longer memories.', skins: ['#f6e6d4', '#e8cfb2', '#c9a582', '#d7e6da', '#d9cfee', '#7a5a7a'] },
+  { name: 'Dwarf', desc: 'Broad, bearded and built for tunnels.', skins: ['#f0c8a8', '#dca07c', '#c07a56', '#8d5a3a', '#5e3a26'], short: true },
+  { name: 'Halfling', desc: 'Small, quick and hard to frighten.', skins: ['#f4d6bc', '#e6b996', '#cf9b74', '#a8724c', '#6a4028'], short: true },
+  { name: 'Orc', desc: 'Tusked and tireless.', skins: ['#7f9a52', '#62803e', '#8a9a72', '#4e6436', '#9a8f78', '#5a6a6a'] },
+  { name: 'Tiefling', desc: 'Horned, with a devil somewhere in the family tree.', skins: ['#b83a40', '#8a2a5a', '#6a3a9a', '#3a4a9a', '#c86a48', '#8a8a9e'] },
+  { name: 'Revenant', desc: 'Died once. Did not care for it.', skins: ['#cfcfbf', '#b0b8a6', '#a2b0c2', '#dcd2c0', '#8a9a88'] },
+  { name: 'Dragonborn', desc: 'Scaled, snouted, and warm to the touch.', skins: ['#3f8a5e', '#9a3030', '#2f5a9a', '#c8a440', '#6e6e78', '#e2dcc8', '#2e2a30'] },
+];
+export const GENDERS = ['Man', 'Woman', 'Non-binary'];
+export const BUILDS = ['Lean', 'Broad', 'Curvy', 'Stout'];
+/** The build a gender starts with (any build can be picked afterwards). */
+export const GENDER_BUILD = [1, 2, 0];
+export const HAIR_STYLES = ['Bald', 'Cropped', 'Short', 'Long', 'Ponytail', 'Braids', 'Bun', 'Mohawk', 'Wild', 'Curly', 'Side-swept', 'Twin tails'];
+export const HAIR_COLORS = ['#1a1414', '#3a2418', '#5e3a20', '#8a5a2a', '#c48a3a', '#e8cc78', '#f2ecd8', '#9a9a9a', '#a3302a', '#d8642a', '#3a5ac8', '#3a9a5a', '#7a3ab0', '#e070a8'];
+export const BEARDS = ['None', 'Stubble', 'Moustache', 'Goatee', 'Full beard', 'Long beard', 'Braided beard'];
+export const EYES = ['#b8f4ff', '#6aa8ff', '#5fd06a', '#3a2418', '#7a5a2a', '#ffd060', '#ff4a3a', '#c060ff', '#ffffff'];
+export const OUTFITS = ['Robe', 'Gown', 'Cloak and tunic', 'Plate armour', 'Leather jerkin', 'Long coat', 'Monk wrap', 'Rags'];
+export const ROBES = ['#4b2a5e', '#2a3a5e', '#5e2a2a', '#2a4a32', '#3a3a3a', '#5a4a2a', '#1e1e28', '#6a5a6a', '#7a1a2a', '#2a5a5a', '#8a6a3a', '#d8d0c0'];
+export const ROBES_HI = ['#7a4a96', '#4a6a96', '#96484a', '#4a7a56', '#5e5e5e', '#8a7444', '#3a3a4a', '#9a8a9a', '#a82a3a', '#3a8a8a', '#b08a52', '#f4eee0'];
 export const TRIMS = ['#c99a3a', '#cfc4ad', '#a3202a', '#5fd06a', '#6fd0ff', '#e0b040', '#9a6cff', '#1a1a1a'];
 export const ORBS = ['#9fe0ff', '#ff8a3a', '#9cff5a', '#ff4a6a', '#e0c0ff', '#ffe070', '#ffffff', '#6fa0ff'];
-export const SKINS = ['#2c1838', '#3a2418', '#1a1a24', '#2a2a2a', '#3a1418'];
-export const HEADS = ['Deep hood', 'Pointed hat', 'Iron helm', 'Horned cowl', 'Bone crown'];
-export const DEFAULT_LOOK = { robe: 0, trim: 0, orb: 0, head: 0, skin: 0 };
+export const HEADS = ['Bare head', 'Deep hood', 'Pointed hat', 'Wide-brim hat', 'Circlet', 'Iron helm', 'Horned helm', 'Bone crown'];
+/** How many choices each field has (used to keep looks in range, including from the network). */
+export const LOOK_COUNTS: Record<keyof Look, number> = {
+  race: RACES.length, gender: GENDERS.length, build: BUILDS.length, skin: 7,
+  hair: HAIR_STYLES.length, hairColor: HAIR_COLORS.length, beard: BEARDS.length, eyes: EYES.length,
+  outfit: OUTFITS.length, robe: ROBES.length, trim: TRIMS.length, head: HEADS.length, orb: ORBS.length,
+};
+export const DEFAULT_LOOK: Look = { race: 0, gender: 0, build: 1, skin: 2, hair: 2, hairColor: 2, beard: 0, eyes: 3, outfit: 0, robe: 0, trim: 0, head: 1, orb: 0 };
+/** Clamp any (possibly old or hostile) look into range, filling missing fields. */
+export function cleanLook(l: Partial<Look> | undefined): Look {
+  const out = { ...DEFAULT_LOOK };
+  for (const k of Object.keys(LOOK_COUNTS) as (keyof Look)[]) {
+    const v = Math.floor(Number(l?.[k]));
+    if (Number.isFinite(v)) out[k] = Math.max(0, Math.min(LOOK_COUNTS[k] - 1, v));
+  }
+  out.skin = Math.min(out.skin, RACES[out.race].skins.length - 1);
+  return out;
+}
 
 // ---- gear: four slots. Bosses always drop a find; chests sometimes do. Equip at the portal or camp.
 export interface GearDef { name: string; slot: GearSlot; desc: string; stat?: { range?: number; stam?: number; hp?: number; regen?: number; oil?: number } }

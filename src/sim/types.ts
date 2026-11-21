@@ -64,7 +64,12 @@ export interface Pickup { id: number; type: PickupType; x: number; y: number; us
 export type WizardClass = 'spellwright' | 'soulbinder' | 'hexblade' | 'lanternkeeper' | 'tarot' | 'cagebearer';
 export type Mat = 'bone' | 'tallow' | 'ember' | 'rime' | 'ichor' | 'herb' | 'ink';
 
-export interface Look { robe: number; trim: number; orb: number; head: number; skin: number }
+/** A spellwright's appearance. Every field is an index into a list in sim/character.ts; purely cosmetic. */
+export interface Look {
+  race: number; gender: number; build: number; skin: number;
+  hair: number; hairColor: number; beard: number; eyes: number;
+  outfit: number; robe: number; trim: number; head: number; orb: number;
+}
 
 export interface PlayerSetup {
   pid: string;

@@ -2,7 +2,7 @@
 // Codex of things seen. None of it touches the simulation except through WorldOptions.
 
 import { CARDS } from '../sim/cards';
-import { DEFAULT_LOOK, ORIGINS, TRAITS, traitBudget } from '../sim/character';
+import { cleanLook, DEFAULT_LOOK, ORIGINS, TRAITS, traitBudget } from '../sim/character';
 import type { Look, PlayerSetup, WizardClass, World, WorldOptions } from '../sim/types';
 import { dailySeed } from '../net/protocol';
 
@@ -43,7 +43,7 @@ function load(): Meta {
       return m;
     }
     const m = { ...fresh(), ...JSON.parse(raw) } as Meta;
-    m.profile = { ...fresh().profile, ...m.profile, look: { ...DEFAULT_LOOK, ...(m.profile?.look ?? {}) } };
+    m.profile = { ...fresh().profile, ...m.profile, look: cleanLook({ ...DEFAULT_LOOK, ...(m.profile?.look ?? {}) }) };
     return m;
   } catch { return fresh(); }
 }
@@ -87,7 +87,7 @@ export function buyUnlock(id: string): boolean {
 export function setupFor(p: Profile = meta.profile): Omit<PlayerSetup, 'pid'> {
   const origin = ORIGINS[p.origin] && !originLocked(p.origin) ? p.origin : 'knight';
   const traits = p.traits.filter((t) => TRAITS[t]);
-  return { name: p.name || 'Vox', cls: p.cls, origin, traits: traitBudget(traits) >= 0 ? traits : [], look: { ...p.look } };
+  return { name: p.name || 'Vox', cls: p.cls, origin, traits: traitBudget(traits) >= 0 ? traits : [], look: cleanLook(p.look) };
 }
 
 export function runOptions(daily = false): WorldOptions {

@@ -7,6 +7,7 @@ import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { applyAction, createWorld } from '../src/sim/game';
 import type { Action, PlayerSetup, World, WorldOptions } from '../src/sim/types';
+import { cleanLook } from '../src/sim/character';
 import { dailySeed, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/net/protocol';
 
 // Authoritative lockstep relay. It runs the exact same simulation as the clients, validates every
@@ -25,14 +26,13 @@ const lobby = (r: Room) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby',
 /** Clean a client's character sheet; the sim re-validates classes, origins and trait budgets itself. */
 function cleanSetup(pid: string, s: Partial<PlayerSetup> | undefined): PlayerSetup {
   const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.floor(Number(v) || 0)));
-  const look = s?.look ?? ({} as PlayerSetup['look']);
   return {
     pid,
     name: String(s?.name || 'Spellwright').slice(0, 20),
     cls: s?.cls,
     origin: typeof s?.origin === 'string' ? s.origin : undefined,
     traits: Array.isArray(s?.traits) ? s!.traits!.filter((t) => typeof t === 'string').slice(0, 8) : [],
-    look: look && { robe: n(look.robe, 7), trim: n(look.trim, 7), orb: n(look.orb, 7), head: n(look.head, 4), skin: n(look.skin, 4) },
+    look: cleanLook(s?.look),
   };
 }
 function cleanOpts(o: WorldOptions | undefined): WorldOptions {
