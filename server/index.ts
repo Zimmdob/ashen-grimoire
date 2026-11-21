@@ -45,10 +45,17 @@ function cleanOpts(o: WorldOptions | undefined): WorldOptions {
 
 // The same port serves the built game (dist/) over http, so a companion only needs a browser:
 // http://<host-ip>:8787. Run `npm run build` first (npm run play does both).
-const DIST = resolve(process.cwd(), 'dist');
+const DIST = resolve(process.env.AG_DIST || resolve(process.cwd(), 'dist'));
+let tunnelUrl = '';
 const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
 const http = createServer((req, res) => {
   const url = decodeURIComponent((req.url ?? '/').split('?')[0]);
+  // the game asks this to show the host their companion's link
+  if (url === '/tunnel') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify({ url: tunnelUrl, lan: lanAddrs().map((ip) => `http://${ip}:${PORT}`) }));
+    return;
+  }
   let file = normalize(join(DIST, url));
   if (!file.startsWith(DIST)) { res.writeHead(403).end(); return; }
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
@@ -59,8 +66,13 @@ const http = createServer((req, res) => {
   res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
   res.end(readFileSync(file));
 });
+http.on('error', (e: NodeJS.ErrnoException) => {
+  if (e.code === 'EADDRINUSE') console.log(`Port ${PORT} is already in use: another Ashen Grimoire server is probably running. Using that one.`);
+  else console.error(e);
+});
 http.listen(PORT);
 const wss = new WebSocketServer({ server: http });
+wss.on('error', () => { /* reported by the http server above */ });
 wss.on('connection', (ws) => {
   let room: Room | null = null;
   let pid = '';
@@ -119,7 +131,8 @@ wss.on('connection', (ws) => {
     else if (!room.world) { if (room.host === pid) room.host = room.players[0].pid; lobby(room); }
   });
 });
-const lan = Object.values(networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n!.address);
+function lanAddrs() { return Object.values(networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n!.address); }
+const lan = lanAddrs();
 console.log(`Ashen Grimoire co-op server listening on ws://localhost:${PORT}`);
 console.log(`Play here:            http://localhost:${PORT}`);
 for (const ip of lan) console.log(`Your companion opens: http://${ip}:${PORT}`);
@@ -134,14 +147,15 @@ if (process.env.TUNNEL === '1') {
     const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
     if (!m || shown) return;
     shown = true;
+    tunnelUrl = m[0];
     const bar = '='.repeat(64);
     console.log(`\n${bar}\n  SEND IAN THIS LINK (works from anywhere):\n\n    ${m[0]}\n\n  It changes each time you start the server.\n${bar}\n`);
-    try { writeFileSync(resolve(process.cwd(), '..', 'LINK FOR IAN.txt'), `${m[0]}\r\n`); } catch { /* not fatal */ }
+    try { writeFileSync(process.env.AG_LINKFILE || resolve(process.cwd(), '..', 'LINK FOR IAN.txt'), `${m[0]}\r\n`); } catch { /* not fatal */ }
   };
   cf.stdout.on('data', scan);
   cf.stderr.on('data', scan);
   cf.on('error', () => console.log('Could not start cloudflared, so there is no public link. Same-network play still works.'));
+  if (process.env.AG_EMBEDDED) process.on('exit', () => cf.kill());
   const stop = () => { cf.kill(); process.exit(0); };
-  process.on('SIGINT', stop);
-  process.on('SIGTERM', stop);
+  if (!process.env.AG_EMBEDDED) { process.on('SIGINT', stop); process.on('SIGTERM', stop); }
 }

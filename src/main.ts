@@ -812,13 +812,35 @@ function savedServer(): string {
   try { return localStorage.getItem('ashen-server') ?? ''; } catch { return ''; }
 }
 
+/** When this page is served by the co-op server, show the public link for a friend (with Copy). */
+function showFriendLink(el: HTMLElement | null) {
+  if (!el || location.port !== '8787') return;
+  const paint = (url: string) => {
+    el.innerHTML = url
+      ? `<b>Your friend's link</b> (works from anywhere): <a href="${esc(url)}" target="_blank" rel="noopener">${esc(url)}</a> <button type="button" class="btn small" id="copyLink">Copy</button>`
+      : '<span class="k">Opening a public link for your friend…</span>';
+    document.getElementById('copyLink')?.addEventListener('click', () => { navigator.clipboard?.writeText(url).then(() => toast('Link copied. Send it to your friend.')).catch(() => toast(url)); });
+  };
+  let tries = 0;
+  const poll = () => fetch('/tunnel').then((r) => r.json()).then((j: { url: string }) => {
+    if (!el.isConnected) return;
+    paint(j.url);
+    if (!j.url && ++tries < 30) setTimeout(poll, 1000);
+  }).catch(() => { el.innerHTML = ''; });
+  poll();
+}
+
 function coopScreen() {
   const p = setupFor();
-  showOverlay(`<div class="panel"><h2>Descend together</h2><p>One of you runs the co-op server with <b>npm run server</b>. Everyone points at it, one hosts, the rest join with the code. The host's curses apply to everyone.</p>
+  const intro = location.port === '8787'
+    ? 'You are the server. Press <b>Host</b>, then send your friend the link below and your 4-letter code. Your curses apply to everyone.'
+    : 'Paste the link the host sent you, enter their 4-letter code, and press <b>Join</b>. (Or open the host\'s link directly: the server box fills itself in.)';
+  showOverlay(`<div class="panel"><h2>Descend together</h2><p>${intro}</p>
     ${charLine()}
     <div class="lobby"><label class="f">Server${hostedHere ? '' : ' (paste the host\'s link)'}<input class="f" id="url" value="${savedServer()}" placeholder="https://….trycloudflare.com" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
     <label class="f">Game code (to join)<input class="f" id="code" maxlength="4" placeholder="ABCD"></label>
     <label class="f chk"><input type="checkbox" id="dly"> Host today's daily rite</label>
+    <p class="friend" id="friendLink"></p>
     <p class="k">Alt-click or middle-click the map to ping. A fallen companion is only down: stand beside them and press R.</p>
     <div class="row"><button type="button" class="btn ember" id="host">Host</button><button type="button" class="btn" id="join">Join</button><button type="button" class="btn small" id="back">Back</button></div></div></div>`);
   const go = (host: boolean) => {
@@ -830,7 +852,9 @@ function coopScreen() {
       const curses = (opts.curses ?? []).map((c) => CURSES[c]?.name ?? c).join(', ');
       showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2><p>Share this code with your companions.${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
         <div class="plist">${players.map((q) => `${esc(q.name)} <small>${CLASSES[q.cls ?? 'spellwright']?.name ?? ''} · ${esc(ORIGINS[q.origin ?? 'knight']?.name ?? '')}</small>`).join('<br>')}</div>
+        ${isHost ? '<p class="friend" id="friendLink2"></p>' : ''}
         <div class="row">${isHost ? '<button type="button" class="btn ember" id="go">Begin</button>' : '<p>Waiting for the host to begin…</p>'}</div></div>`);
+      showFriendLink(document.getElementById('friendLink2'));
       document.getElementById('go')?.addEventListener('click', () => t.startGame());
     };
     const daily = $<HTMLInputElement>('dly').checked;
@@ -838,6 +862,7 @@ function coopScreen() {
     try { localStorage.setItem('ashen-server', $<HTMLInputElement>('url').value.trim()); } catch { /* storage unavailable */ }
     t.connect(url, host ? { t: 'host', setup: p, opts: runOptions(daily) } : { t: 'join', code: $<HTMLInputElement>('code').value.trim().toUpperCase(), setup: p });
   };
+  showFriendLink(document.getElementById('friendLink'));
   $('host').addEventListener('click', () => go(true));
   $('join').addEventListener('click', () => go(false));
   $('back').addEventListener('click', title);

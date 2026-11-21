@@ -266,3 +266,6 @@ body.touch .card { touch-action: manipulation; user-select: none; -webkit-user-s
 }
 #stage:has(#overlay.on) #touchbar, #stage:has(#overlay.on) #castbar, #stage:has(#overlay.on) #tip { display: none !important; }
 @media (max-width: 760px) { #overlay.on { background: rgba(6, 3, 4, .97); } }
+
+.friend { word-break: break-all; color: var(--parch); }
+.friend a { color: #ffd060; }
