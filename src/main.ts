@@ -17,6 +17,7 @@ import { dailySeed, DEFAULT_SERVER } from './net/protocol';
 import { BIOMES } from './sim/biomes';
 import { CLASSES, GEAR, INSCRIBE_COST, LEARN_COST, MAT_IDS, MAT_NAMES, MUTATIONS, ORIGINS, RECIPES, TRAITS } from './sim/character';
 import { eventFor, SYDNEY_LOOK } from './sim/events';
+import { speak } from './ui/voice';
 import { ACHIEVEMENTS, bankRun, buyUnlock, checkAchievements, CURSE_ASH, CURSES, meta, observe, runOptions, saveMeta, setupFor, UNLOCKS } from './ui/meta';
 import { openCreator, portrait, whoLine } from './ui/creator';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
@@ -687,7 +688,7 @@ function phaseScreen(soft = false) {
     }).join('');
     const ev = eventFor(ps);
     const sydney = ps.event?.id === 'sydney';
-    const evHtml = ev ? `<div class="event ${sydney ? 'sydney' : ''}">${sydney ? `<img class="npc" alt="Sydney" src="${portrait(SYDNEY_LOOK as Look, 6)}">` : ''}<h3 class="sub">${esc(ev.name)}</h3><p>${esc(ev.text)}</p>${ps.event!.done ? `<p class="k">${esc(ps.event!.result ?? '')}</p>` : `<div class="row">${ev.choices.map((c, i) => { const why = c.needs?.(ps, u); return `<button type="button" class="btn small" data-ev="${i}" ${why ? `disabled title="${esc(why)}"` : ''}>${esc(c.label)}</button>`; }).join('')}</div>`}</div>` : '';
+    const evHtml = ev ? `<div class="event ${sydney ? 'sydney' : ''}">${sydney ? `<img class="npc" alt="Sydney" src="${portrait(SYDNEY_LOOK as Look, 6)}">` : ''}<h3 class="sub">${esc(ev.name)}</h3>${sydney ? '<p class="say" id="sydSay"></p>' : `<p>${esc(ev.text)}</p>`}${ps.event!.done ? (sydney ? '<p class="k say" id="sydRes"></p>' : `<p class="k">${esc(ps.event!.result ?? '')}</p>`) : `<div class="row">${ev.choices.map((c, i) => { const why = c.needs?.(ps, u); return `<button type="button" class="btn small" data-ev="${i}" ${why ? `disabled title="${esc(why)}"` : ''}>${esc(c.label)}</button>`; }).join('')}</div>`}</div>` : '';
     showOverlay(`<div class="panel wide"><h2>Bonfire camp</h2><p>${esc(regionName(W))} lies behind you. Health ${u.hp}/${u.maxHp} · Lantern ${Math.round(ps.oil)}/${ps.maxOil} · Fed ${ps.satiety} · Corruption ${ps.corruption}${ps.buffs.length ? ` · Ready for the road: ${esc(ps.buffs.join(', '))}` : ''}</p>
       ${evHtml}${mutationHtml(ps)}${gearHtml(ps)}
       <div class="mats">${mats}</div>
@@ -697,6 +698,13 @@ function phaseScreen(soft = false) {
       <div class="row"><button type="button" class="btn" id="rest" ${ps.rested || W.opts.curses?.includes('no_rest') ? 'disabled' : ''}>${ps.rested ? 'Rested' : 'Rest by the fire'}</button></div>
       <h3 class="sub">The road ahead</h3><div class="roads">${roads}</div>
       <div class="row">${ps.ready ? `<p>Waiting for ${esc(waitingFor(W).join(', '))}…</p>` : `<button type="button" class="btn ember" id="onward" ${ps.pendingMutations > 0 ? 'disabled' : ''}>Take the road</button>`}</div></div>`);
+    if (sydney && ev) {
+      const lineKey = `${W.level}|${ps.event!.grade}|${ps.event!.offer?.join()}`;
+      const say = document.getElementById('sydSay');
+      if (say) speak(say, ev.text, 'sydney', `intro|${lineKey}`);
+      const res = document.getElementById('sydRes');
+      if (res) speak(res, ps.event!.result ?? '', 'sydney', `result|${lineKey}`);
+    }
     for (const b of document.querySelectorAll<HTMLButtonElement>('[data-ev]')) b.addEventListener('click', () => send({ t: 'event', pid: ps.pid, choice: Number(b.dataset.ev) }));
     for (const b of document.querySelectorAll<HTMLButtonElement>('[data-craft]')) b.addEventListener('click', () => send({ t: 'craft', pid: ps.pid, recipe: b.dataset.craft! }));
     for (const b of document.querySelectorAll<HTMLButtonElement>('[data-ins]')) b.addEventListener('click', () => { send({ t: 'inscribe', pid: ps.pid, card: b.dataset.ins! }); cardsKey = ''; });

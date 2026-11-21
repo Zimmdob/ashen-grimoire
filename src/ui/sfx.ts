@@ -4,6 +4,9 @@ let muted = false;
 export const setMuted = (m: boolean) => { muted = m; };
 export const isMuted = () => muted;
 
+/** The shared audio context (null while muted). */
+export function audioCtx(): AudioContext | null { return ac(); }
+
 function ac(): AudioContext | null {
   if (muted) return null;
   try {
