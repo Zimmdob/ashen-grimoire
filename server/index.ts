@@ -22,7 +22,7 @@ let nextPid = 1;
 const code = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 const send = (ws: WebSocket, m: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
 const broadcast = (r: Room, m: ServerMsg) => r.sockets.forEach((ws) => send(ws, m));
-const lobby = (r: Room) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts }));
+const lobby = (r: Room, again = false) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, again }));
 /** Clean a client's character sheet; the sim re-validates classes, origins and trait budgets itself. */
 function cleanSetup(pid: string, s: Partial<PlayerSetup> | undefined): PlayerSetup {
   const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.floor(Number(v) || 0)));
@@ -105,6 +105,20 @@ wss.on('connection', (ws) => {
       room.world = createWorld(room.seed, room.players, room.opts);
       room.world.events.length = 0;
       broadcast(room, { t: 'start', seed: room.seed, players: room.players, opts: room.opts, log: [] });
+      return;
+    }
+    if (m.t === 'again') {
+      // Only once the run is over: the whole party goes back to this room's lobby, nobody is dropped.
+      if (room.world && room.world.phase !== 'dead' && room.world.phase !== 'victory') return;
+      const fresh = cleanSetup(pid, m.setup);
+      room.players = room.players.map((p) => (p.pid === pid ? fresh : p));
+      if (room.world) {
+        room.world = null;
+        room.log = [];
+        room.seed = (Math.random() * 2 ** 31) | 0;
+        if (!room.players.some((p) => p.pid === room!.host)) room.host = room.players[0]?.pid ?? pid;
+      }
+      lobby(room, true);
       return;
     }
     if (m.t === 'action' && room.world) {

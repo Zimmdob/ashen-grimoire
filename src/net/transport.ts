@@ -36,22 +36,31 @@ export class NetTransport implements Transport {
   onStart: (w: World) => void = () => {};
   onApplied: (a: Action, r: ActionResult) => void = () => {};
   onError: (msg: string) => void = () => {};
-  onLobby: (code: string, players: LobbyPlayer[], isHost: boolean, opts: WorldOptions) => void = () => {};
+  onLobby: (code: string, players: LobbyPlayer[], isHost: boolean, opts: WorldOptions, again: boolean) => void = () => {};
+  private closing = false;
 
   connect(url: string, first: ClientMsg) {
     try { this.ws = new WebSocket(url); } catch { this.onError('Could not reach the server.'); return; }
     this.ws.onopen = () => this.raw(first);
     this.ws.onerror = () => this.onError('Could not reach the server. Is it running? (npm run server)');
-    this.ws.onclose = () => { if (this.world) this.onError('Disconnected from the server.'); };
+    this.ws.onclose = () => { if (this.world && !this.closing) this.onError('Disconnected from the server.'); };
     this.ws.onmessage = (ev) => this.recv(JSON.parse(String(ev.data)) as ServerMsg);
   }
   private raw(m: ClientMsg) { this.ws?.send(JSON.stringify(m)); }
   startGame() { this.raw({ t: 'start' }); }
+  /** Back to this room's lobby with the same party for another descent. */
+  again(setup: Omit<PlayerSetup, 'pid'>) { this.raw({ t: 'again', setup }); }
+  /** Leave the room for good (title screen, solo run): the server lets the others know. */
+  close() { this.closing = true; this.ws?.close(); this.ws = null; }
   send(a: Action) { this.raw({ t: 'action', a }); }
 
   private recv(m: ServerMsg) {
     switch (m.t) {
-      case 'lobby': this.localPid = m.you; this.onLobby(m.code, m.players, m.host === m.you, m.opts ?? {}); break;
+      case 'lobby':
+        this.localPid = m.you;
+        if (m.again) this.world = null;
+        this.onLobby(m.code, m.players, m.host === m.you, m.opts ?? {}, !!m.again);
+        break;
       case 'start': {
         this.world = createWorld(m.seed, m.players, m.opts ?? {});
         for (const a of m.log) applyAction(this.world, a);

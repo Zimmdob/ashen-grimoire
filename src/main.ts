@@ -107,6 +107,7 @@ function downedNear(): PlayerState | null {
 
 // ---------------------------------------------------------------- transport wiring
 function attach(t: Transport) {
+  if (T && T !== t && T instanceof NetTransport) T.close();
   T = t;
   t.onStart = (w) => {
     W = w;
@@ -832,22 +833,39 @@ function phaseScreen(soft = false) {
     const ash = bankRun(W, worldId);
     showOverlay(`<div class="panel"><h1>The grimoire falls silent</h1><p>You fell in ${esc(regionName(W))}, ${esc(floorName(W))}, at depth ${roman(W.level)}, with ${W.kills} foes slain and ${W.run.bossesSlain} lord${W.run.bossesSlain === 1 ? '' : 's'} of the Reach unmade.</p>
       <p>You carry <b>${ash} Ash</b> back to the Sanctum (now ${meta.ash}). Deepest descent: depth ${roman(meta.bestDepth)}.</p>
-      <div class="row"><button type="button" class="btn ember" id="again">Rise again</button><button type="button" class="btn" id="sanct">Sanctum</button><button type="button" class="btn small" id="menu">Title</button></div></div>`);
-    $('again').addEventListener('click', () => startSolo());
-    $('sanct').addEventListener('click', sanctum);
-    $('menu').addEventListener('click', title);
+      ${endButtons('Rise again')}</div>`);
+    bindEndButtons();
     return;
   }
   if (W.phase === 'victory') {
     const ash = bankRun(W, worldId);
     showOverlay(`<div class="panel"><h1>The Hollow King is unmade</h1><p>The Ashen Reach is cleansed: ${W.kills} foes and ${W.run.bossesSlain} lords slain over ${W.level} floors.</p>
       <p>You bring <b>${ash} Ash</b> home to the Sanctum (now ${meta.ash}).</p>
-      <div class="row"><button type="button" class="btn ember" id="again">Descend anew</button><button type="button" class="btn" id="sanct">Sanctum</button></div></div>`);
-    $('again').addEventListener('click', () => startSolo());
-    $('sanct').addEventListener('click', sanctum);
+      ${endButtons('Descend anew')}</div>`);
+    bindEndButtons();
     return;
   }
   if (W.phase === 'planning' || W.phase === 'placing') hideOverlay();
+}
+
+/** End-of-run buttons. In co-op, going again keeps the party together in the same room. */
+function endButtons(again: string): string {
+  if (T instanceof NetTransport) {
+    return `<p class="k">Your companions stay with you. Going again brings everyone back to this game's lobby, and the host presses Begin.</p>
+      <div class="row"><button type="button" class="btn ember" id="again">${esc(again)} together</button><button type="button" class="btn small" id="menu">Leave the party</button></div>`;
+  }
+  return `<div class="row"><button type="button" class="btn ember" id="again">${esc(again)}</button><button type="button" class="btn" id="sanct">Sanctum</button><button type="button" class="btn small" id="menu">Title</button></div>`;
+}
+function bindEndButtons() {
+  const t = T;
+  if (t instanceof NetTransport) {
+    $('again').addEventListener('click', (e) => { (e.currentTarget as HTMLButtonElement).disabled = true; t.again(setupFor()); });
+    $('menu').addEventListener('click', () => { t.close(); title(); });
+    return;
+  }
+  $('again').addEventListener('click', () => startSolo());
+  $('sanct').addEventListener('click', sanctum);
+  $('menu').addEventListener('click', title);
 }
 
 function startSolo(seed = (Math.random() * 2 ** 31) | 0, daily = false) {
@@ -970,9 +988,10 @@ function coopScreen() {
     attach(t);
     cardsKey = '';
     screenKey = '';
-    t.onLobby = (code, players, isHost, opts) => {
+    t.onLobby = (code, players, isHost, opts, again) => {
+      if (again) W = null;
       const curses = (opts.curses ?? []).map((c) => CURSES[c]?.name ?? c).join(', ');
-      showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2><p>Share this code with your companions.${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
+      showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2>${again ? '<p><b>The party rises again.</b> Same companions, a fresh descent.</p>' : ''}<p>Share this code with your companions.${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
         <div class="plist">${players.map((q) => `<span class="who small"><img alt="" src="${portrait(q.look as Look, 3)}"> ${esc(q.name)} <small>${esc(whoLine(q))}</small></span>`).join('<br>')}</div>
         ${isHost ? '<p class="friend" id="friendLink2"></p>' : ''}
         <div class="row">${isHost ? '<button type="button" class="btn ember" id="go">Begin</button>' : '<p>Waiting for the host to begin…</p>'}</div></div>`);
