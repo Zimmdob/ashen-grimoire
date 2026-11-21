@@ -1,0 +1,16 @@
+{
+  "name": "Ashen Grimoire",
+  "short_name": "Grimoire",
+  "description": "Forge spells card by card and cross the Ashen Reach. Solo or co-op.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "any",
+  "background_color": "#070606",
+  "theme_color": "#0a0707",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

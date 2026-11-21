@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0a0707">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Grimoire">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <title>Ashen Grimoire</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%23120c0c'/%3E%3Cpath d='M3 3h10v10H3z' fill='%234b2a5e'/%3E%3Cpath d='M6 6h4v4H6z' fill='%23e8762c'/%3E%3C/svg%3E">
+</head>
+<body>
+  <div id="app">
+    <main id="left">
+      <div class="frame" id="stage">
+        <canvas id="cv" aria-label="The dungeon"></canvas>
+        <div id="banner"></div>
+        <div id="toast" role="status"></div>
+        <div id="tip" role="status" aria-live="polite"></div>
+        <div id="touchbar" aria-label="Touch controls">
+          <button type="button" class="btn small" id="infoBtn" aria-label="Codex and chronicle">Codex</button>
+          <button type="button" class="btn small" id="modeBtn" aria-label="Toggle walk or look mode">Walk</button>
+          <button type="button" class="btn small" id="centerBtn" aria-label="Center the camera">Center</button>
+        </div>
+        <div id="castbar" aria-label="Cast controls">
+          <button type="button" class="btn small" id="cancelBtn">Cancel</button>
+          <button type="button" class="btn ember" id="castBtn">Cast</button>
+        </div>
+        <div id="overlay"></div>
+      </div>
+      <div class="frame" id="hud">
+        <div id="bars">
+          <div class="bar hp"><b id="hpFill"></b><i id="hpPred"></i><span id="hpTxt"></span></div>
+          <div class="bar mana"><b id="manaFill"></b><i id="manaPred"></i><span id="manaTxt"></span></div>
+          <div class="bar stam"><b id="stamFill"></b><span id="stamTxt"></span></div>
+          <div id="surv" aria-live="polite"></div>
+        </div>
+        <div id="forge">
+          <div id="queue"></div>
+          <div id="qcost"></div>
+          <div id="marks" aria-label="Spell bookmarks"></div>
+        </div>
+        <div id="actions">
+          <button id="clearBtn" class="btn small" type="button">Clear</button>
+          <button id="endBtn" class="btn" type="button">End turn</button>
+        </div>
+      </div>
+      <div class="frame" id="rack"><div id="cards"></div></div>
+    </main>
+    <aside class="frame" id="codex">
+      <h2>Codex</h2><button type="button" class="btn small close" id="codexClose">Close</button>
+      <div id="info"></div>
+      <h3>Chronicle</h3>
+      <ol id="log"></ol>
+      <div class="audio">
+        <button id="musicBtn" class="btn small" type="button">Music on</button>
+        <label class="vol">Volume <input id="musicVol" type="range" min="0" max="100" step="1" aria-label="Music volume"></label>
+        <button id="muteBtn" class="btn small" type="button">Sound on</button>
+      </div>
+    </aside>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
