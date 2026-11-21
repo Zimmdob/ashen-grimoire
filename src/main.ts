@@ -36,6 +36,9 @@ let T: Transport | null = null;
 let W: World | null = null;
 let spell: string[] = [];
 let mouse: Pt | null = null;
+/** Where the cursor last was on the map, so hovering a card can still preview the spell there. */
+let lastMouse: Pt | null = null;
+const mouseNow = () => mouse ?? lastMouse;
 let hoverId: number | null = null;
 let hoverCard: string | null = null;
 let dirty = true;
@@ -237,7 +240,7 @@ canvas.addEventListener('pointermove', (e) => {
   const u = unitAt(mouse);
   hoverId = u ? u.id : null;
 });
-canvas.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch' && !walking) { mouse = null; hoverId = null; } });
+canvas.addEventListener('pointerleave', (e) => { if (e.pointerType !== 'touch' && !walking) { if (mouse) lastMouse = mouse; mouse = null; hoverId = null; } });
 const stopWalking = () => { walking = false; };
 window.addEventListener('blur', stopWalking);
 
@@ -556,7 +559,7 @@ function refreshInfoInner() {
   const n = R.ov.threats.size;
   info.innerHTML = `<p>${n ? `<span class="warn">${n} foe${n > 1 ? 's' : ''} outlined in red can strike you next turn${threatDmg ? ` for about ${threatDmg}` : ''}.</span>` : 'No foe can reach you next turn.'}</p>
     <ul><li>Hold right-click to walk toward the cursor. Walking spends stamina.</li><li>Click cards, or press 1–0, to forge a spell; click a target to cast it.</li>
-    <li>Target cards widen who is hit; effects strike everything targeted so far.</li><li>Each card costs 25% more every time you use it on a depth.</li>
+    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Each card costs 25% more every time you use it on a depth.</li>
     <li>Shove foes into lava, traps, walls and each other. Urns burst when broken.</li><li>Gold coin: a bounty worth ${RULES.BOUNTY_POINTS} upgrade points. Diamonds: elite affixes.</li>
     <li>Click a bookmark slot to save a spell; F1–F4 recall it. Alt-click pings.</li><li>Hover a foe to see its reach. WASD pans, C recenters.</li>
     <li>Your lantern burns each turn. Oil flasks and braziers refill it; in the dark, Shades hunt you.</li><li>In co-op a fallen companion is only down: stand beside them and press R.</li></ul>`;
@@ -577,27 +580,89 @@ function updateOverlays() {
     };
   }
   const idle = !R.blocked && W.phase === 'planning';
-  o.castRing = null; o.aim = null; o.path = null; o.targets = new Set(); o.after = null;
+  o.castRing = null; o.aim = null; o.path = null; o.targets = new Set(); o.after = null; o.zones = []; o.first = null;
+  let tag = '';
+  let tagAt: Pt | null = null;
   if (idle && ps && u && u.alive && !ps.endedTurn && spell.length && coarse && !aimPt) o.castRing = { x: u.x, y: u.y, r: u.range };
-  else if (idle && ps && u && u.alive && !ps.endedTurn && mouse) {
-    if (spell.length) {
+  else if (idle && ps && u && u.alive && !ps.endedTurn && (mouse || (hoverCard && !coarse && lastMouse))) {
+    const mouse = mouseNow()!;
+    // Hovering a card in your hand previews the spell as if you had added it.
+    const trial = hoverCard && !coarse && CARDS[hoverCard] && (ps.cls !== 'tarot' || ps.cards.includes(hoverCard)) ? [...spell, hoverCard] : spell;
+    if (trial.length) {
       o.castRing = { x: u.x, y: u.y, r: u.range };
       const tgt = unitAt(mouse);
       const aim = tgt ? { x: tgt.x, y: tgt.y } : mouse;
-      const key = `${spell.join()}|${Math.round(aim.x / 4)}|${Math.round(aim.y / 4)}|${W.beat}`;
-      if (key !== lastPreviewKey) { cachedPv = previewCast(W, ps.pid, spell, aim); lastPreviewKey = key; }
+      const key = `${trial.join()}|${Math.round(aim.x / 4)}|${Math.round(aim.y / 4)}|${W.beat}`;
+      if (key !== lastPreviewKey) { cachedPv = previewCast(W, ps.pid, trial, aim); lastPreviewKey = key; }
       const pv = cachedPv;
       if (pv) {
         o.targets = pv.targets;
         o.after = pv.after;
+        o.zones = pv.zones;
+        o.first = pv.first;
         o.aim = { from: u, to: aim, ok: pv.inRange && pv.affordable && !pv.selfDies };
+        tag = aimSummary(pv, u, trial !== spell ? hoverCard! : null);
+        tagAt = aim;
       }
-    } else if (!$('overlay').classList.contains('on') && (!coarse || walking)) {
+    } else if (!hoverCard && !$('overlay').classList.contains('on') && (!coarse || walking)) {
       const key = `${Math.round(mouse.x / 8)}|${Math.round(mouse.y / 8)}|${W.beat}|${Math.round(u.x)}|${Math.round(u.y)}`;
       if (key !== lastPathKey) { const path = findPath(W, u, mouse, { lavaCost: 30 }); cachedPath = path && path.length ? [{ x: u.x, y: u.y }, ...path] : null; lastPathKey = key; }
       if (cachedPath) o.path = { pts: cachedPath, limit: u.stam };
     }
   }
+  placeAimTag(tag, tagAt);
+}
+
+/** One line beside the aim point: what this spell hits, kills, and anything it costs your side. */
+function aimSummary(pv: NonNullable<ReturnType<typeof previewCast>>, u: Unit, trying: string | null): string {
+  if (!W) return '';
+  let foes = 0, kills = 0, dmg = 0, heals = 0, bodies = 0;
+  const hurtFriends: string[] = [];
+  for (const v of W.units) {
+    if (v.gone) continue;
+    const a = pv.after.get(v.id);
+    if (!a) continue;
+    const targeted = pv.targets.has(v.id);
+    if (!v.alive) { if (targeted) bodies++; continue; }
+    const d = a.hp - v.hp;
+    const friend = v.faction === 'player';
+    if (friend && (d < 0 || !a.alive) && !UNITS[v.type].prop) hurtFriends.push(v === u ? 'you' : v.owner ? (W.players.find((p) => p.pid === v.owner)?.name ?? 'a friend') : unitName(v));
+    if (!friend && !UNITS[v.type].prop) {
+      if (targeted || d < 0 || !a.alive) foes++;
+      if (d < 0) dmg -= d;
+      if (!a.alive) kills++;
+    }
+    if (friend && d > 0) heals += d;
+  }
+  const bits: string[] = [];
+  if (trying) bits.push(`<span class="with">+ ${esc(CARDS[trying].name)}:</span>`);
+  if (!pv.inRange) bits.push('<span class="bad">Out of reach</span>');
+  if (foes) bits.push(`<b>${foes}</b> foe${foes > 1 ? 's' : ''}`);
+  if (dmg) bits.push(`<b>${dmg}</b> dmg`);
+  if (kills) bits.push(`<b>${kills}</b> slain`);
+  if (bodies) bits.push(`${bodies} bod${bodies > 1 ? 'ies' : 'y'}`);
+  if (heals) bits.push(`<span class="good">+${heals} hp</span>`);
+  if (hurtFriends.length) bits.push(`<span class="bad">hits ${esc([...new Set(hurtFriends)].join(', '))}</span>`);
+  if (pv.selfDies) bits.push('<span class="bad">kills you</span>');
+  else if (!pv.affordable) bits.push('<span class="bad">can\'t afford</span>');
+  if (bits.length === (trying ? 1 : 0)) bits.push('<span class="dim">no one</span>');
+  return bits.join(' · ');
+}
+
+let aimTagKey = '';
+function placeAimTag(html: string, at: Pt | null) {
+  const el = $('aimTag');
+  if (!html || !at) { if (aimTagKey) { el.classList.remove('on'); aimTagKey = ''; } return; }
+  const r = canvas.getBoundingClientRect();
+  const stage = $('stage').getBoundingClientRect();
+  const sx = ((at.x - R.cam.x) * SC / BW) * r.width + r.left - stage.left;
+  const sy = ((at.y - R.cam.y) * SC / BH) * r.height + r.top - stage.top;
+  if (html !== aimTagKey) { el.innerHTML = html; aimTagKey = html; }
+  el.classList.add('on');
+  // Centred just under the aim point, kept inside the stage; flips above near the bottom edge.
+  const half = el.offsetWidth / 2 + 6;
+  el.style.left = `${Math.round(Math.max(half, Math.min(stage.width - half, sx)))}px`;
+  el.style.top = `${Math.round(sy + 26 + el.offsetHeight > stage.height - 8 ? sy - 30 - el.offsetHeight : sy + 26)}px`;
 }
 
 let frame = 0;
@@ -927,7 +992,7 @@ function coopScreen() {
 
 
 // Exposed for automated playtests and modding consoles.
-(window as unknown as { __ag: unknown }).__ag = { get world() { return W; }, get pid() { return T?.localPid; }, get busy() { return R.busy; }, send, renderer: R, music };
+(window as unknown as { __ag: unknown }).__ag = { get world() { return W; }, get pid() { return T?.localPid; }, get busy() { return R.busy; }, send, renderer: R, music, placeProblem };
 
 // ---------------------------------------------------------------- installable app
 // Offline cache for the home-screen app. Skipped in the desktop app (file://) and the dev server.

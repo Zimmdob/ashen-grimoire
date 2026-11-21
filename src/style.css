@@ -297,3 +297,11 @@ body.touch .card { touch-action: manipulation; user-select: none; -webkit-user-s
 .event .talk .btn.asked { opacity: .65; }
 .event .talkline { font-style: italic; color: #ffd9b0; min-height: 0; }
 .event .talkline:empty { display: none; }
+
+/* Spell aiming summary: rides beside the aim point. */
+#aimTag { position: absolute; display: none; pointer-events: none; z-index: 4; transform: translateX(-50%);
+  padding: 2px 8px 3px; background: rgba(12, 8, 8, .88); border: 1px solid #6a4ab0; white-space: nowrap;
+  font: 17px/1.05 'VT323', monospace; color: var(--parch); }
+#aimTag.on { display: block; }
+#aimTag b { color: #ffd24a; font-weight: normal; } #aimTag .bad { color: #ff6a5a; } #aimTag .good { color: #8cff9a; }
+#aimTag .dim { color: var(--dim); } #aimTag .with { color: #c0a0ff; }

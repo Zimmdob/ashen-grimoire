@@ -6,6 +6,7 @@ import { RULES } from '../sim/constants';
 import { UNITS } from '../sim/units';
 import { statusOf } from '../sim/combat';
 import { AFFIXES } from '../sim/runes';
+import type { Zone } from '../sim/cards';
 import { buildSprites, wizardSprite, type SpriteSet } from './sprites';
 import { drawGrain, drawLava, drawMap, lightBlob } from './mapArt';
 
@@ -33,7 +34,10 @@ export interface Overlays {
   threats: Set<number>;
   targets: Set<number>;
   predicted: Map<number, number>;
-  after: Map<number, { hp: number; alive: boolean; shield: number }> | null;
+  after: Map<number, { hp: number; alive: boolean; shield: number; x?: number; y?: number }> | null;
+  /** Spell aiming: the areas it sweeps and where its first target lands. */
+  zones: Zone[];
+  first: Pt | null;
   hoverId: number | null;
   path: { pts: Pt[]; limit: number } | null;
   castRing: { x: number; y: number; r: number } | null;
@@ -57,6 +61,9 @@ export class GameRenderer {
   private barG = new Graphics();
   private uiG = new Graphics();
   private floatLayer = new Container();
+  /** Predicted damage numbers shown while aiming; pooled so aiming never allocates per frame. */
+  private pvLayer = new Container();
+  private pvTexts: Text[] = [];
   private glowLayer = new Container();
   private lightCont = new Container();
   private lightRT!: RenderTexture;
@@ -102,7 +109,7 @@ export class GameRenderer {
   camOff = { x: 0, y: 0 };
   followId: number | null = null;
   worldRef: World | null = null;
-  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null, place: null };
+  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null, place: null, zones: [], first: null };
   onLog: (s: string) => void = () => {};
   onSfx: (s: string) => void = () => {};
   onPhase: (p: string) => void = () => {};
@@ -121,7 +128,7 @@ export class GameRenderer {
     this.unitLayer.sortableChildren = true;
     this.ghostLayer.sortableChildren = true;
     this.world.addChild(this.mapSprite, this.lavaSprite, this.underG, this.pickupLayer, this.unitLayer);
-    this.over.addChild(this.glowLayer, this.ghostLayer, this.fxG, this.uiG, this.barG, this.floatLayer);
+    this.over.addChild(this.glowLayer, this.ghostLayer, this.fxG, this.uiG, this.barG, this.pvLayer, this.floatLayer);
     this.lightSprite = new Sprite(this.lightRT);
     this.grain = new Sprite(Texture.from(drawGrain(BW, BH)));
     this.app.stage.addChild(this.world, this.lightSprite, this.over, this.grain);
@@ -568,10 +575,22 @@ export class GameRenderer {
       }
       g.stroke({ width: 2, color: 0xb48cff, alpha: 0.7 });
     }
+    if (o.zones.length) this.drawZones(g, o.zones, now);
+    if (o.after) this.drawOutcomes(g, now);
     if (o.aim) {
-      g.moveTo(o.aim.from.x, o.aim.from.y).lineTo(o.aim.to.x, o.aim.to.y).stroke({ width: 2, color: o.aim.ok ? 0xb48cff : 0xc03030, alpha: 0.6 });
-      g.circle(o.aim.to.x, o.aim.to.y, 8).stroke({ width: 2, color: o.aim.ok ? 0xffd24a : 0xc03030 });
-    }
+      const a = o.aim;
+      const col = a.ok ? 0xb48cff : 0xc03030;
+      if (a.ok) g.moveTo(a.from.x, a.from.y).lineTo(a.to.x, a.to.y).stroke({ width: 2, color: col, alpha: 0.55 });
+      else dashLine(g, a.from, a.to, 10, 8, now / 40, col, 0.8, 2);
+      const f = o.first ?? a.to;
+      const spin = now / 600;
+      for (let i = 0; i < 4; i++) {
+        const ang = spin + (i * Math.PI) / 2;
+        const c = Math.cos(ang), sn = Math.sin(ang);
+        g.moveTo(f.x + c * 7, f.y + sn * 7).lineTo(f.x + c * 15, f.y + sn * 15).stroke({ width: 2, color: a.ok ? 0xffd24a : 0xc03030 });
+      }
+      g.circle(f.x, f.y, 3).fill({ color: a.ok ? 0xffd24a : 0xc03030 });
+    } else this.hidePv(0);
     const hv = o.hoverId != null ? this.views.get(o.hoverId) : null;
     if (hv && hv.s.alive && hv.s.faction === 'enemy' && this.worldRef) {
       const u = this.worldRef.units.find((x) => x.id === hv.id);
@@ -580,6 +599,108 @@ export class GameRenderer {
         if (u.maxStam > 0) g.circle(hv.x, hv.y, u.range + u.maxStam).stroke({ width: 1, color: 0xff3a2a, alpha: 0.2 });
       }
     }
+  }
+
+  /** Areas a spell sweeps: violet for targeting shapes, the effect's own colour for blasts. Edges march so they read as live. */
+  private drawZones(g: Graphics, zones: Zone[], now: number) {
+    const phase = now / 45;
+    const V = 0x9a6cff;
+    for (const z of zones) {
+      if (z.k === 'circle') {
+        const col = z.tone === 'target' ? V : z.color ?? 0xff7a2a;
+        g.circle(z.x, z.y, z.r).fill({ color: col, alpha: z.tone === 'target' ? 0.1 : 0.12 });
+        dashCircle(g, z.x, z.y, z.r, phase, col, 0.85, 2);
+        g.circle(z.x, z.y, 2).fill({ color: col, alpha: 0.8 });
+      } else if (z.k === 'beam') {
+        const L = Math.hypot(z.x2 - z.x, z.y2 - z.y) || 1;
+        const nx = (-(z.y2 - z.y) / L) * z.w, ny = ((z.x2 - z.x) / L) * z.w;
+        g.poly([z.x + nx, z.y + ny, z.x2 + nx, z.y2 + ny, z.x2 - nx, z.y2 - ny, z.x - nx, z.y - ny]).fill({ color: V, alpha: 0.12 });
+        dashLine(g, { x: z.x + nx, y: z.y + ny }, { x: z.x2 + nx, y: z.y2 + ny }, 10, 7, phase, V, 0.85, 2);
+        dashLine(g, { x: z.x - nx, y: z.y - ny }, { x: z.x2 - nx, y: z.y2 - ny }, 10, 7, phase, V, 0.85, 2);
+        if (z.w > 6) g.moveTo(z.x2 + nx, z.y2 + ny).lineTo(z.x2 - nx, z.y2 - ny).stroke({ width: 2, color: V, alpha: 0.85 });
+      } else if (z.k === 'cone') {
+        const pts: number[] = [z.x, z.y];
+        const n = 18;
+        for (let i = 0; i <= n; i++) {
+          const a = z.a - z.spread + (2 * z.spread * i) / n;
+          pts.push(z.x + Math.cos(a) * z.len, z.y + Math.sin(a) * z.len);
+        }
+        g.poly(pts).fill({ color: V, alpha: 0.11 });
+        for (const sgn of [-1, 1]) {
+          const a = z.a + sgn * z.spread;
+          dashLine(g, z, { x: z.x + Math.cos(a) * z.len, y: z.y + Math.sin(a) * z.len }, 10, 7, phase, V, 0.85, 2);
+        }
+        dashArc(g, z.x, z.y, z.len, z.a - z.spread, z.a + z.spread, phase, V, 0.85, 2);
+      } else {
+        dashLine(g, z, { x: z.x2, y: z.y2 }, 8, 6, phase, V, 0.9, 2);
+        g.circle(z.x2, z.y2, 3).fill({ color: V, alpha: 0.9 });
+      }
+    }
+  }
+
+  /**
+   * What the spell will do to each body: a ground reticle coloured by outcome
+   * (gold: harms a foe, red: harms you or a friend, green: helps), knockback arrows, and the numbers.
+   */
+  private drawOutcomes(g: Graphics, now: number) {
+    const o = this.ov;
+    const after = o.after!;
+    const pulse = 0.65 + 0.35 * Math.sin(now / 160);
+    let n = 0;
+    for (const v of this.views.values()) {
+      if (v.fade > 0 || !v.s.alive) continue;
+      const a = after.get(v.id);
+      if (!a) continue;
+      const targeted = o.targets.has(v.id);
+      const dHp = a.hp - v.s.hp;
+      const dSh = a.shield - v.s.shield;
+      const moved = a.x != null && a.y != null && Math.hypot(a.x - v.x, a.y! - v.y) > 6;
+      if (!targeted && !dHp && !moved && a.alive) continue;
+      const friend = v.s.faction === 'player';
+      const harmed = dHp < 0 || !a.alive;
+      const col = harmed ? (friend ? 0xff4a3a : 0xffd24a) : dHp > 0 || dSh > 0 ? 0x8cff9a : 0xb48cff;
+      const s = this.scaleOf(v);
+      const rr = (v.r + 6) * Math.max(1, s * 0.8);
+      // four corner brackets on the ground
+      for (let i = 0; i < 4; i++) {
+        const ang = Math.PI / 4 + (i * Math.PI) / 2;
+        const cx = v.x + Math.cos(ang) * rr, cy = v.y + 4 + Math.sin(ang) * rr * 0.55;
+        const hx = Math.cos(ang) > 0 ? -6 : 6, vy = Math.sin(ang) > 0 ? -4 : 4;
+        g.moveTo(cx + hx, cy).lineTo(cx, cy).lineTo(cx, cy + vy).stroke({ width: 2, color: col, alpha: pulse });
+      }
+      if (moved) {
+        dashLine(g, v, { x: a.x!, y: a.y! }, 8, 6, now / 45, col, 0.9, 2);
+        const L = Math.hypot(a.x! - v.x, a.y! - v.y);
+        const ux = (a.x! - v.x) / L, uy = (a.y! - v.y) / L;
+        g.poly([a.x!, a.y!, a.x! - ux * 9 - uy * 5, a.y! - uy * 9 + ux * 5, a.x! - ux * 9 + uy * 5, a.y! - uy * 9 - ux * 5]).fill({ color: col, alpha: 0.95 });
+        g.circle(a.x!, a.y!, v.r).stroke({ width: 1, color: col, alpha: 0.5 });
+      }
+      let label = '';
+      let lc = col;
+      if (!a.alive) { label = friend ? 'FALLS' : 'DIES'; lc = friend ? 0xff4a3a : 0xffd24a; }
+      else if (dHp < 0) label = String(dHp);
+      else if (dHp > 0) label = `+${dHp}`;
+      else if (dSh > 0) { label = `+${dSh} ward`; lc = 0x6fd0ff; }
+      if (label) {
+        let t = this.pvTexts[n];
+        if (!t) {
+          t = new Text({ text: '', style: { fontFamily: 'VT323, monospace', fontSize: 20, fill: 0xffffff, stroke: { color: 0x000000, width: 4 } } });
+          t.anchor.set(0.5, 1);
+          this.pvLayer.addChild(t);
+          this.pvTexts.push(t);
+        }
+        if (t.text !== label) t.text = label;
+        t.style.fill = lc;
+        t.visible = true;
+        t.position.set(Math.round(v.x), Math.round(v.y - 34 * s - (a.alive ? 12 : 30)));
+        n++;
+      }
+    }
+    this.hidePv(n);
+  }
+
+  private hidePv(from: number) {
+    for (let i = from; i < this.pvTexts.length; i++) this.pvTexts[i].visible = false;
   }
 
   private drawBars() {
@@ -685,4 +806,36 @@ export class GameRenderer {
     for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
     this.app.renderer.render({ container: this.lightCont, target: this.lightRT, clear: true });
   }
+}
+
+/** Dashed straight line whose dashes march along it with `phase`. */
+function dashLine(g: Graphics, a: Pt, b: Pt, dash: number, gap: number, phase: number, color: number, alpha: number, width: number) {
+  const L = Math.hypot(b.x - a.x, b.y - a.y);
+  if (L < 1) return;
+  const ux = (b.x - a.x) / L, uy = (b.y - a.y) / L, per = dash + gap;
+  for (let d = (phase % per) - per; d < L; d += per) {
+    const s0 = Math.max(0, d), s1 = Math.min(L, d + dash);
+    if (s1 <= s0) continue;
+    g.moveTo(a.x + ux * s0, a.y + uy * s0).lineTo(a.x + ux * s1, a.y + uy * s1);
+  }
+  g.stroke({ width, color, alpha });
+}
+
+function dashArc(g: Graphics, x: number, y: number, r: number, a0: number, a1: number, phase: number, color: number, alpha: number, width: number) {
+  const len = r * (a1 - a0);
+  const per = 17, dash = 10;
+  for (let d = (phase % per) - per; d < len; d += per) {
+    const s0 = Math.max(0, d), s1 = Math.min(len, d + dash);
+    if (s1 <= s0) continue;
+    const b0 = a0 + s0 / r, b1 = a0 + s1 / r;
+    g.moveTo(x + Math.cos(b0) * r, y + Math.sin(b0) * r);
+    const steps = 3;
+    for (let i = 1; i <= steps; i++) { const b = b0 + ((b1 - b0) * i) / steps; g.lineTo(x + Math.cos(b) * r, y + Math.sin(b) * r); }
+  }
+  g.stroke({ width, color, alpha });
+}
+
+/** Dashed circle; the dashes crawl round it so the area reads as a live preview, not terrain. */
+function dashCircle(g: Graphics, x: number, y: number, r: number, phase: number, color: number, alpha: number, width: number) {
+  dashArc(g, x, y, r, 0, Math.PI * 2, phase, color, alpha, width);
 }

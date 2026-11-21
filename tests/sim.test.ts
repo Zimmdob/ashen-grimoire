@@ -429,4 +429,22 @@ describe('systems', () => {
       expect(w.units.some((u) => u.faction === 'enemy')).toBe(true);
     }
   });
+
+  it('aiming preview shows the area each targeting card sweeps, and stacked Circles spread wider', () => {
+    const w = createWorld(21, [{ pid: 'p1', name: 'A' }]);
+    if (w.phase === 'placing') applyAction(w, { t: 'place', pid: 'p1', x: playerUnit(w, w.players[0]).x, y: playerUnit(w, w.players[0]).y });
+    const ps = w.players[0];
+    ps.cards = [...CARD_IDS];
+    const me = playerUnit(w, ps);
+    me.mana = 999;
+    const aim = { x: me.x + 80, y: me.y };
+    const one = previewCast(w, 'p1', ['circle', 'sever'], aim)!;
+    const two = previewCast(w, 'p1', ['circle', 'circle', 'sever'], aim)!;
+    const r = (pv: typeof one) => Math.max(...pv.zones.filter((z) => z.k === 'circle' && z.tone === 'target').map((z) => (z as { r: number }).r));
+    expect(r(one)).toBe(75);
+    expect(r(two)).toBe(110);
+    expect(previewCast(w, 'p1', ['cone', 'sever'], aim)!.zones.some((z) => z.k === 'cone')).toBe(true);
+    expect(previewCast(w, 'p1', ['line', 'sever'], aim)!.zones.some((z) => z.k === 'beam')).toBe(true);
+    expect(previewCast(w, 'p1', ['nova', 'sever'], aim)!.zones.some((z) => z.k === 'circle' && z.x === me.x)).toBe(true);
+  });
 });

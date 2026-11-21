@@ -6,8 +6,8 @@ import { floorTiles, generateMap, placeTorches, tileAt } from './map';
 import { findPath } from './path';
 import { commitWalk, findFreeNear, freeAt, knockback, planWalk } from './physics';
 import { rand, randInt, shuffle } from './rng';
-import { CARD_IDS, CARDS } from './cards';
-import { cantAfford, executeSpell, spellCost } from './spell';
+import { CARD_IDS, CARDS, isUnit, type Zone } from './cards';
+import { cantAfford, executeSpell, pickInitialTarget, spellCost } from './spell';
 import { choirRevive, spawnShade, think } from './ai';
 import { makeElder, makeUnit, UNITS } from './units';
 import { BIOMES, makeRoute } from './biomes';
@@ -774,7 +774,11 @@ export function applyAction(w: World, a: Action): ActionResult {
 
 export interface CastPreview {
   targets: Set<number>;
-  after: Map<number, { hp: number; alive: boolean; shield: number }>;
+  after: Map<number, { hp: number; alive: boolean; shield: number; x: number; y: number }>;
+  /** Areas the spell sweeps: target shapes from target cards, then blast rings from effects. */
+  zones: Zone[];
+  /** Where the spell's first target lands: a body, or bare ground. */
+  first: Pt & { id?: number };
   inRange: boolean;
   affordable: boolean;
   selfDies: boolean;
@@ -822,13 +826,24 @@ export function previewCast(w: World, pid: string, cards: string[], aim: Pt): Ca
   su.stam -= cost.stam;
   sps.oil -= cost.oil;
   su.hp -= cost.hp;
-  const targets = executeSpell(s, su, cards, aim);
-  const after = new Map<number, { hp: number; alive: boolean; shield: number }>();
-  for (const v of s.units) after.set(v.id, { hp: v.hp, alive: v.alive && !v.gone && v.downed === 0, shield: v.shield });
+  const zones: Zone[] = [];
+  const first = pickInitialTarget(s, aim);
+  const targets = executeSpell(s, su, cards, aim, zones);
+  // Blasts, quakes and other area effects already announce their reach as rings; show those too.
+  for (const e of s.events) {
+    if (e.k !== 'fx' || e.fx !== 'ring' || (e.r ?? 0) < 40) continue;
+    const r = e.r ?? 0;
+    if (zones.some((z) => z.k === 'circle' && Math.abs(z.x - e.x) < 1 && Math.abs(z.y - e.y) < 1 && Math.abs(z.r - r) < 1)) continue;
+    zones.push({ k: 'circle', x: e.x, y: e.y, r, tone: 'effect', color: e.color });
+  }
+  const after = new Map<number, { hp: number; alive: boolean; shield: number; x: number; y: number }>();
+  for (const v of s.units) after.set(v.id, { hp: v.hp, alive: v.alive && !v.gone && v.downed === 0, shield: v.shield, x: v.x, y: v.y });
   const real = playerUnit(w, ps);
   return {
     targets: new Set(targets.filter((t): t is Unit => !(t as { pt?: boolean }).pt).map((t) => t.id)),
     after,
+    zones,
+    first: isUnit(first) ? { x: first.x, y: first.y, id: first.id } : { x: first.x, y: first.y },
     inRange: dist(real, aim) <= real.range,
     affordable: !cantAfford(ps, real, cost) && (ps.cls !== 'tarot' || fromHand(ps.hand, cards)),
     selfDies: !su.alive || su.downed > 0,

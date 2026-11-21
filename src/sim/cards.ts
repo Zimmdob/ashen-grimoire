@@ -21,7 +21,16 @@ export interface SpellCtx {
   stack: Record<string, number>;
   /** Power of the card now resolving: its inscription level and any Overcharge. */
   pw: number;
+  /** Preview only: shapes the target cards sweep, so the player can see the area before casting. */
+  zones?: Zone[];
 }
+/** An area a spell covers, for the aiming preview. Never read by the sim. */
+export type Zone =
+  | { k: 'circle'; x: number; y: number; r: number; tone: 'target' | 'effect'; color?: number }
+  | { k: 'beam'; x: number; y: number; x2: number; y2: number; w: number }
+  | { k: 'cone'; x: number; y: number; a: number; spread: number; len: number }
+  | { k: 'link'; x: number; y: number; x2: number; y2: number };
+const zone = (ctx: SpellCtx, z: Zone) => { ctx.zones?.push(z); };
 /** Scale a number by the resolving card's power. */
 const P = (ctx: SpellCtx, n: number) => Math.round(n * ctx.pw);
 
@@ -56,11 +65,13 @@ const byDistThenId = (o: Pt) => (a: Unit, b: Unit) => dist(a, o) - dist(b, o) ||
 const list: Card[] = [
   // ---- Targeting -------------------------------------------------------------
   { id: 'circle', name: 'Circle of Binding', school: 'target', cost: 15, mode: 'target',
-    desc: 'Also target every body within 75 of each target. Stack it to spread wider.',
+    desc: 'Also target every body within 75 of each target. Each extra Circle in the spell spreads 35 wider.',
     run(ctx) {
+      const r = 75 + 35 * ((ctx.stack.circle ?? 1) - 1);
       for (const t of [...ctx.targets]) {
-        emit(ctx.w, { k: 'fx', fx: 'ring', x: t.x, y: t.y, r: 75, color: 0x9a6cff });
-        for (const v of bodies(ctx.w).sort(byDistThenId(t))) if (dist(v, t) <= 75) add(ctx, v);
+        emit(ctx.w, { k: 'fx', fx: 'ring', x: t.x, y: t.y, r, color: 0x9a6cff });
+        zone(ctx, { k: 'circle', x: t.x, y: t.y, r, tone: 'target' });
+        for (const v of bodies(ctx.w).sort(byDistThenId(t))) if (dist(v, t) <= r) add(ctx, v);
       }
     } },
   { id: 'chain', name: 'Chain of Souls', school: 'target', cost: 25, mode: 'target',
@@ -79,6 +90,7 @@ const list: Card[] = [
             next.push(v);
             added++;
             emit(ctx.w, { k: 'fx', fx: 'line', x: f.x, y: f.y, x2: v.x, y2: v.y, color: 0xb48cff });
+            zone(ctx, { k: 'link', x: f.x, y: f.y, x2: v.x, y2: v.y });
           }
         }
         frontier = next;
@@ -89,7 +101,7 @@ const list: Card[] = [
     run(ctx) {
       for (const t of ctx.targets.filter(isUnit)) {
         const same = bodies(ctx.w).filter((v) => v !== t && v.type === t.type && v.alive === t.alive && !ctx.targets.includes(v)).sort(byDistThenId(t)).slice(0, 3);
-        for (const v of same) { add(ctx, v); emit(ctx.w, { k: 'fx', fx: 'line', x: t.x, y: t.y, x2: v.x, y2: v.y, color: 0x9a6cff }); }
+        for (const v of same) { add(ctx, v); emit(ctx.w, { k: 'fx', fx: 'line', x: t.x, y: t.y, x2: v.x, y2: v.y, color: 0x9a6cff }); zone(ctx, { k: 'link', x: t.x, y: t.y, x2: v.x, y2: v.y }); }
       }
     } },
   { id: 'line', name: 'Lance Line', school: 'target', cost: 15, mode: 'target',
@@ -99,6 +111,7 @@ const list: Card[] = [
       const L = Math.hypot(a.x - c.x, a.y - c.y) || 1;
       const ux = (a.x - c.x) / L, uy = (a.y - c.y) / L, len = Math.max(260, L + 60);
       emit(ctx.w, { k: 'fx', fx: 'line', x: c.x, y: c.y, x2: c.x + ux * len, y2: c.y + uy * len, color: 0x9a6cff });
+      zone(ctx, { k: 'beam', x: c.x, y: c.y, x2: c.x + ux * len, y2: c.y + uy * len, w: 22 });
       for (const v of bodies(ctx.w)) {
         if (v === c) continue;
         const t = (v.x - c.x) * ux + (v.y - c.y) * uy;
@@ -111,6 +124,7 @@ const list: Card[] = [
     run(ctx) {
       const c = ctx.caster;
       const base = Math.atan2(ctx.aim.y - c.y, ctx.aim.x - c.x);
+      zone(ctx, { k: 'cone', x: c.x, y: c.y, a: base, spread: 0.61, len: 230 });
       for (const s of [-0.61, 0.61]) emit(ctx.w, { k: 'fx', fx: 'line', x: c.x, y: c.y, x2: c.x + Math.cos(base + s) * 230, y2: c.y + Math.sin(base + s) * 230, color: 0x9a6cff });
       for (const v of bodies(ctx.w)) {
         if (v === c || dist(v, c) > 230) continue;
@@ -353,9 +367,10 @@ const list: Card[] = [
       const ux = (a.x - c.x) / L, uy = (a.y - c.y) / L;
       for (let s = 0; s < 700; s += 6) {
         const p = { x: c.x + ux * s, y: c.y + uy * s };
-        if (isWallAt(ctx.w, p.x, p.y)) break;
+        if (isWallAt(ctx.w, p.x, p.y)) { zone(ctx, { k: 'beam', x: c.x, y: c.y, x2: p.x, y2: p.y, w: 4 }); break; }
         const hit = ctx.w.units.find((v) => v !== c && v.alive && !v.gone && dist(v, p) < v.r + 2);
-        if (hit) { emit(ctx.w, { k: 'fx', fx: 'line', x: c.x, y: c.y, x2: hit.x, y2: hit.y, color: 0x9a6cff }); add(ctx, hit); break; }
+        if (hit) { emit(ctx.w, { k: 'fx', fx: 'line', x: c.x, y: c.y, x2: hit.x, y2: hit.y, color: 0x9a6cff }); zone(ctx, { k: 'beam', x: c.x, y: c.y, x2: hit.x, y2: hit.y, w: 4 }); add(ctx, hit); break; }
+        if (s + 6 >= 700) zone(ctx, { k: 'beam', x: c.x, y: c.y, x2: p.x, y2: p.y, w: 4 });
       }
     } },
   { id: 'nova', name: 'Nova Ring', school: 'target', cost: 25, mode: 'target',
@@ -363,6 +378,7 @@ const list: Card[] = [
     run(ctx) {
       const c = ctx.caster;
       emit(ctx.w, { k: 'fx', fx: 'ring', x: c.x, y: c.y, r: 140, color: 0x9a6cff });
+      zone(ctx, { k: 'circle', x: c.x, y: c.y, r: 140, tone: 'target' });
       for (const v of bodies(ctx.w).sort(byDistThenId(c))) if (v !== c && dist(v, c) <= 140) add(ctx, v);
     } },
   { id: 'rend', name: 'Rend', school: 'harm', cost: 10, mode: 'each',
@@ -508,13 +524,16 @@ const list: Card[] = [
     run(ctx) {
       for (const t of [...ctx.targets]) {
         const near = ctx.w.units.filter((v) => v.alive && !v.gone && v.faction !== ctx.caster.faction && v !== t).sort(byDistThenId(t)).slice(0, 2);
-        for (const v of near) { add(ctx, v); emit(ctx.w, { k: 'fx', fx: 'line', x: t.x, y: t.y, x2: v.x, y2: v.y, color: 0x9a6cff }); }
+        for (const v of near) { add(ctx, v); emit(ctx.w, { k: 'fx', fx: 'line', x: t.x, y: t.y, x2: v.x, y2: v.y, color: 0x9a6cff }); zone(ctx, { k: 'link', x: t.x, y: t.y, x2: v.x, y2: v.y }); }
       }
     } },
   { id: 'gather', name: 'Gather the Dead', school: 'target', cost: 10, mode: 'target',
     desc: 'Also target every corpse within 150 of each target.',
     run(ctx) {
-      for (const t of [...ctx.targets]) for (const v of bodies(ctx.w).sort(byDistThenId(t))) if (!v.alive && dist(v, t) <= 150) add(ctx, v);
+      for (const t of [...ctx.targets]) {
+        zone(ctx, { k: 'circle', x: t.x, y: t.y, r: 150, tone: 'target' });
+        for (const v of bodies(ctx.w).sort(byDistThenId(t))) if (!v.alive && dist(v, t) <= 150) add(ctx, v);
+      }
     } },
   { id: 'quake', name: 'Quake', school: 'force', cost: 30, mode: 'first',
     desc: 'The ground heaves: every body within 120 of the first target is thrown 70 away from it.',

@@ -1,5 +1,5 @@
 import type { PlayerState, Pt, Unit, World } from './types';
-import { CARDS, type SpellCtx, type Target, isUnit } from './cards';
+import { CARDS, type SpellCtx, type Target, type Zone, isUnit } from './cards';
 import { dist, emit, hasMut, ownerState } from './combat';
 import { RULES } from './constants';
 import { rand } from './rng';
@@ -26,8 +26,8 @@ export function pickInitialTarget(w: World, aim: Pt): Target {
  * Run a forged spell. Cards resolve strictly left to right.
  * Modifier cards (Echo, Overcharge) change the card after them. Returns the final target list.
  */
-export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt): Target[] {
-  const ctx: SpellCtx = { w, caster, aim, targets: [pickInitialTarget(w, aim)], stack: {}, pw: 1 };
+export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt, zones?: Zone[]): Target[] {
+  const ctx: SpellCtx = { w, caster, aim, targets: [pickInitialTarget(w, aim)], stack: {}, pw: 1, zones };
   const ps = ownerState(w, caster);
   emit(w, { k: 'sfx', s: 'cast' });
   emit(w, { k: 'fx', fx: 'line', x: caster.x, y: caster.y, x2: aim.x, y2: aim.y, color: 0xb48cff });
