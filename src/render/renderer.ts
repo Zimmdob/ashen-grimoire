@@ -20,6 +20,8 @@ let VIEW_W = BW / SC, VIEW_H = BH / SC;
 interface View {
   id: number; type: string; x: number; y: number; r: number; mini: boolean; owner: string | null; s: UnitStatus;
   path: Pt[]; speed: number; flip: boolean; flash: number; fade: number;
+  /** The current path is a spellwright walking (which never blocks anyone else). */
+  walking: boolean;
   main: Sprite; outline: Sprite; flashS: Sprite; ghost: Sprite;
 }
 interface Fx { kind: FxKind; x: number; y: number; x2: number; y2: number; r: number; color: number; t0: number; dur: number }
@@ -124,14 +126,22 @@ export class GameRenderer {
   // ------------------------------------------------------------------ events
   enqueue(evts: GameEvent[]) { if (evts.length) this.queue.push(...evts); }
   get busy() { return this.queue.length > 0 || this.anyAnim() || performance.now() < this.beatEnd; }
-  private anyAnim() { for (const v of this.views.values()) if (v.path.length) return true; return false; }
-  /** True when nothing is playing except (possibly) this unit's own walk, so it may keep walking. */
-  freeToWalk(id: number | null) {
-    if (performance.now() < this.beatEnd) return false;
-    if (this.queue.some((e) => !(e.k === 'move' && e.id === id) && e.k !== 'unit' && e.k !== 'sfx')) return false;
-    for (const v of this.views.values()) if (v.id !== id && v.path.length) return false;
-    return true;
+  /**
+   * Something is playing that the player must wait for (a spell, a shove, the foes' turn).
+   * Spellwrights walking (yours or a companion's) never count: in co-op everyone moves at once.
+   */
+  get blocked() {
+    return performance.now() < this.beatEnd || this.blockingAnim() || this.queue.some((e) => !this.isWalkEvent(e));
   }
+  private anyAnim() { for (const v of this.views.values()) if (v.path.length) return true; return false; }
+  private blockingAnim() { for (const v of this.views.values()) if (v.path.length && !v.walking) return true; return false; }
+  /** A spellwright's walk step (or its bookkeeping), which may play alongside other walks. */
+  private isWalkEvent(e: GameEvent) {
+    if (e.k === 'unit' || e.k === 'sfx') return true;
+    return e.k === 'move' && !!this.views.get(e.id)?.owner;
+  }
+  /** May this spellwright send another walk step? Yes unless something non-walking is playing. */
+  freeToWalk(_id: number | null) { return !this.blocked; }
   /** Distance still to be walked on screen by a unit. */
   pendingWalk(id: number | null) {
     const v = id != null ? this.views.get(id) : null;
@@ -151,10 +161,10 @@ export class GameRenderer {
       const b0 = this.queue[0].beat;
       const batch: GameEvent[] = [];
       for (const e of this.queue) { if (e.beat !== b0) break; batch.push(e); }
-      const walkOnly = batch.every((e) => e.k === 'move' || e.k === 'unit' || e.k === 'sfx');
-      const ids = new Set(batch.flatMap((e) => (e.k === 'move' ? [e.id] : [])));
-      for (const v of this.views.values()) if (v.path.length && !ids.has(v.id)) return;
-      if (!walkOnly || !ids.size) return;
+      // Walk steps start even while other spellwrights are still walking, so companions move at
+      // the same time; anything else (a spell, a shove, the foes) waits for everything to finish.
+      const walkOnly = batch.every((e) => this.isWalkEvent(e)) && batch.some((e) => e.k === 'move');
+      if (!walkOnly || this.blockingAnim()) return;
     }
     if (!this.queue.length) {
       if (this.needReconcile) { this.reconcile(); this.needReconcile = false; }
@@ -172,8 +182,8 @@ export class GameRenderer {
     const v = 'id' in e ? this.views.get(e.id) : undefined;
     switch (e.k) {
       case 'level': this.buildLevel(e.snap); return 250;
-      case 'move': if (v) { v.path.push(...e.path); v.speed = v.owner ? RULES.MOVE_SPEED : RULES.MOVE_SPEED * 1.6; } return 0;
-      case 'push': if (v) { v.path.push(...e.path); v.speed = 0.85; } return 0;
+      case 'move': if (v) { v.path.push(...e.path); v.speed = v.owner ? RULES.MOVE_SPEED : RULES.MOVE_SPEED * 1.6; v.walking = !!v.owner; } return 0;
+      case 'push': if (v) { v.path.push(...e.path); v.speed = 0.85; v.walking = false; } return 0;
       case 'teleport': if (v) { v.x = e.x; v.y = e.y; v.path = []; } return 140;
       case 'hurt':
         if (v) {
@@ -285,7 +295,7 @@ export class GameRenderer {
     ghost.anchor.set(0.5, 0.85);
     this.unitLayer.addChild(outline, main, flashS);
     this.ghostLayer.addChild(ghost);
-    const v: View = { id: u.id, type: u.type, x: u.x, y: u.y, r: u.r, mini: u.mini, owner: u.owner, s: statusOf(u), path: [], speed: 0.4, flip: false, flash: 0, fade: 0, main, outline, flashS, ghost };
+    const v: View = { id: u.id, type: u.type, x: u.x, y: u.y, r: u.r, mini: u.mini, owner: u.owner, s: statusOf(u), path: [], walking: false, speed: 0.4, flip: false, flash: 0, fade: 0, main, outline, flashS, ghost };
     this.views.set(u.id, v);
     return v;
   }

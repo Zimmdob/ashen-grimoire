@@ -59,7 +59,7 @@ const me = () => (W && T ? playerState(W, T.localPid) : undefined);
 const myUnit = (): Unit | undefined => { const ps = me(); return W && ps ? playerUnit(W, ps) : undefined; };
 const canAct = () => {
   const ps = me(), u = myUnit();
-  return !!W && !!ps && !!u && W.phase === 'planning' && u.alive && !ps.endedTurn && !R.busy;
+  return !!W && !!ps && !!u && W.phase === 'planning' && u.alive && !ps.endedTurn && !R.blocked;
 };
 let toastTimer = 0;
 function toast(msg: string) {
@@ -326,7 +326,7 @@ function addCard(id: string) {
 }
 function endTurn() {
   const ps = me();
-  if (!ps || !W || R.busy) return;
+  if (!ps || !W || R.blocked) return;
   if (W.phase !== 'planning') return;
   spell = [];
   send({ t: 'endTurn', pid: ps.pid });
@@ -476,7 +476,7 @@ function refreshHud() {
   const waiting = ps.endedTurn && W.phase === 'planning';
   $<HTMLButtonElement>('endBtn').disabled = W.phase !== 'planning' || ps.endedTurn || !u.alive;
   $('endBtn').textContent = waiting ? 'Waiting…' : 'End turn';
-  const phaseTxt = W.phase === 'enemies' || (R.busy && !R.freeToWalk(u.id)) ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
+  const phaseTxt = W.phase === 'enemies' || R.blocked ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
   const b = biomeOf(W);
   const moon = W.run.bloodMoon ? ' · <span class="bad">Blood moon</span>' : '';
   $('banner').innerHTML = `${esc(b.name)} · ${esc(floorName(W))}<small>Depth ${roman(W.level)} · ${phaseTxt} · ${W.kills} slain${moon}</small><small class="rule">${esc(b.rule)}</small>`;
@@ -543,7 +543,7 @@ function updateOverlays() {
   const u = myUnit();
   const o = R.ov;
   o.hoverId = hoverId;
-  const idle = (!R.busy || (walking && u != null && R.freeToWalk(u.id))) && W.phase === 'planning';
+  const idle = !R.blocked && W.phase === 'planning';
   o.castRing = null; o.aim = null; o.path = null; o.targets = new Set(); o.after = null;
   if (idle && ps && u && u.alive && !ps.endedTurn && spell.length && coarse && !aimPt) o.castRing = { x: u.x, y: u.y, r: u.range };
   else if (idle && ps && u && u.alive && !ps.endedTurn && mouse) {
@@ -582,8 +582,7 @@ function loop() {
   if (keys.has('a') || keys.has('arrowleft')) R.camOff.x -= pan;
   if (keys.has('d') || keys.has('arrowright')) R.camOff.x += pan;
   if (!W) return;
-  const meId = myUnit()?.id ?? null;
-  if (!R.busy || (walking && R.freeToWalk(meId))) {
+  if (!R.blocked) {
     const k = `${W.beat}|${W.phase}`;
     if (k !== threatKey && W.phase === 'planning') {
       threatKey = k;
