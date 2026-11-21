@@ -38,6 +38,8 @@ export interface Overlays {
   path: { pts: Pt[]; limit: number } | null;
   castRing: { x: number; y: number; r: number } | null;
   aim: { from: Pt; to: Pt; ok: boolean } | null;
+  /** Placement: where you would appear, whether you may, and the no-go circles around foes. */
+  place: { x: number; y: number; ok: boolean; foes: Pt[]; clear: number } | null;
 }
 
 export class GameRenderer {
@@ -59,6 +61,9 @@ export class GameRenderer {
   private lightCont = new Container();
   private lightRT!: RenderTexture;
   private dark!: Graphics;
+  /** Lift the darkness (while players choose where to begin). */
+  reveal = false;
+  private revealShown = false;
   private lightSprite!: Sprite;
   private grain!: Sprite;
 
@@ -72,7 +77,7 @@ export class GameRenderer {
     BW = nw; BH = nh; VIEW_W = BW / SC; VIEW_H = BH / SC;
     this.app.renderer.resize(BW, BH);
     this.lightRT.resize(BW, BH);
-    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: 0.8 });
+    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
     const old = this.grain.texture;
     this.grain.texture = Texture.from(drawGrain(BW, BH));
     old.destroy(true);
@@ -97,7 +102,7 @@ export class GameRenderer {
   camOff = { x: 0, y: 0 };
   followId: number | null = null;
   worldRef: World | null = null;
-  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null };
+  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null, place: null };
   onLog: (s: string) => void = () => {};
   onSfx: (s: string) => void = () => {};
   onPhase: (p: string) => void = () => {};
@@ -252,6 +257,12 @@ export class GameRenderer {
   }
 
   /** Re-render the static map and the list of glowing liquid tiles (after a level loads or terrain changes). */
+  private applyReveal() {
+    if (this.revealShown === this.reveal || !this.dark) return;
+    this.revealShown = this.reveal;
+    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
+  }
+
   private refreshMap() {
     const snap = this.snap;
     if (!snap || !this.lavaCanvas) return;
@@ -352,6 +363,7 @@ export class GameRenderer {
     const now = performance.now();
     const dt = Math.min(50, this.app.ticker.deltaMS);
     this.frame++;
+    this.applyReveal();
     this.step(now);
     for (const v of this.views.values()) {
       let budget = v.speed * dt;
@@ -537,6 +549,15 @@ export class GameRenderer {
         prev = p;
       }
       if (prev) g.rect(prev.x - 3, prev.y - 3, 6, 6).fill({ color: used <= o.path.limit ? 0xe0c040 : 0x8a2a2a });
+    }
+    if (o.place) {
+      const pl = o.place;
+      for (const f of pl.foes) g.circle(f.x, f.y, pl.clear).fill({ color: 0xa02020, alpha: 0.08 }).stroke({ width: 1, color: 0xff4a3a, alpha: 0.35 });
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 180);
+      const c = pl.ok ? 0x8cff9a : 0xff4a3a;
+      g.circle(pl.x, pl.y, 14).stroke({ width: 2, color: c, alpha: pulse });
+      g.circle(pl.x, pl.y, 4).fill({ color: c, alpha: pulse });
+      if (pl.ok) g.moveTo(pl.x, pl.y - 34).lineTo(pl.x, pl.y - 18).stroke({ width: 2, color: c, alpha: pulse });
     }
     if (o.castRing) {
       const r = o.castRing;

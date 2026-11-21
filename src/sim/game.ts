@@ -1,8 +1,8 @@
 import type { Action, ActionResult, PlayerSetup, PlayerState, Pt, Unit, WizardClass, World, WorldOptions } from './types';
-import { RULES, STARTING_CARDS, TILE, T_FLOOR } from './constants';
+import { isLiquid, isWalkable, RULES, STARTING_CARDS, TILE, T_FLOOR } from './constants';
 import { corrupt, curse, dist, eat, emit, hasGear, hasMut, hasTrait, heal, log, startTick, sync } from './combat';
 import { AFFIX_IDS, RUNE_IDS, RUNES } from './runes';
-import { floorTiles, generateMap, placeTorches } from './map';
+import { floorTiles, generateMap, placeTorches, tileAt } from './map';
 import { findPath } from './path';
 import { commitWalk, findFreeNear, freeAt, knockback, planWalk } from './physics';
 import { rand, randInt, shuffle } from './rng';
@@ -46,7 +46,7 @@ export function createWorld(seed: number, players: PlayerSetup[], opts: WorldOpt
     seed: seed | 0, level: 0, turn: 1, phase: 'planning', MW: 34, MH: 24, map: [], torches: [], units: [], pickups: [],
     players: [], portal: null, nextId: 1, events: [], beat: 0, kills: 0, wave: 1, waves: 1, pendingScrolls: [],
     run: { route: [], tier: 0, region: 'cellars', floor: 0, floorsInRegion: RULES.FLOORS_PER_REGION, bossesSlain: 0, bloodMoon: false },
-    opts: { curses: [...(opts.curses ?? [])], pool: [...(opts.pool ?? [])], daily: !!opts.daily },
+    opts: { curses: [...(opts.curses ?? [])], pool: [...(opts.pool ?? [])], daily: !!opts.daily, placement: !!opts.placement },
     turnHits: {}, wells: [], keys: 0, bond: 0, duet: -1,
   };
   w.run.route = makeRoute(w);
@@ -69,7 +69,7 @@ function makePlayer(w: World, p: PlayerSetup): PlayerState {
     origin, traits, look: cleanLook(p.look), cardLevels: {},
     oil: RULES.MAX_OIL, maxOil: RULES.MAX_OIL, satiety: RULES.START_SATIETY, starveLoss: 0, chill: 0, corruption: 0,
     mutations: [], mutationOffer: [], pendingMutations: 0, mats: emptyMats(), buffs: [], routeVote: -1, rested: false,
-    hand: [], cage: [], maxCage: 0, gear: emptyGear(), bag: [], event: null,
+    hand: [], cage: [], maxCage: 0, gear: emptyGear(), bag: [], event: null, placed: true,
   };
   const oc = ORIGINS[origin].card;
   if (!ps.cards.includes(oc)) ps.cards.push(oc);
@@ -199,7 +199,10 @@ export function startFloor(w: World) {
     const u = w.units.find((v) => v.id === ps.unitId);
     if (u && hasTrait(ps, 'haunted') && w.level >= 5) spawnShadeQuiet(w, u);
   }
-  w.phase = 'planning';
+  // With placement on, the depth opens with everyone choosing where to begin.
+  const placing = !!w.opts.placement;
+  for (const ps of w.players) ps.placed = !placing || !!ps.left;
+  w.phase = placing ? 'placing' : 'planning';
   w.beat++;
   emit(w, { k: 'level', snap: structuredClone({ level: w.level, MW: w.MW, MH: w.MH, map: w.map, torches: w.torches, units: w.units, pickups: w.pickups, biome: w.run.region, wells: w.wells }) });
   log(w, `${b.name}: ${b.floors[Math.min(1, w.run.floor - 1)]}.${lastFloor(w) ? ' Something terrible waits here.' : ''}`);
@@ -693,6 +696,25 @@ export function applyAction(w: World, a: Action): ActionResult {
       heal(w, u, Math.round(u.maxHp * (hasTrait(ps, 'sleeper') ? 0.5 : 0.35)));
       return { ok: true };
     }
+    case 'place': {
+      if (w.phase !== 'placing') return fail('Not now');
+      if (ps.placed) return fail('You have already chosen');
+      const why = placeProblem(w, u, a);
+      if (why) return fail(why);
+      const p = findFreeNear(w, a.x, a.y, u.r, u, 40)!;
+      emit(w, { k: 'fx', fx: 'column', x: p.x, y: p.y, color: 0x9a6cff });
+      u.x = p.x; u.y = p.y; u.lastTile = tileAt(w, p.x, p.y);
+      w.beat++;
+      emit(w, { k: 'teleport', id: u.id, x: u.x, y: u.y });
+      emit(w, { k: 'sfx', s: 'portal' });
+      ps.placed = true;
+      if (w.players.every((q) => q.placed || q.left)) {
+        w.phase = 'planning';
+        w.beat++;
+        emit(w, { k: 'phase', phase: 'planning' });
+      }
+      return { ok: true };
+    }
     case 'event': {
       if (w.phase !== 'camp') return fail('Not now');
       const r = chooseEvent(w, ps, u, a.choice);
@@ -769,6 +791,17 @@ function gearStats(ps: PlayerState, u: Unit, id: string, sign: 1 | -1) {
   if (s.regen && u.maxMana > 0) u.regen += sign * s.regen;
   if (s.oil) { ps.maxOil += sign * s.oil; ps.oil = Math.min(ps.oil, ps.maxOil); }
 }
+
+/** Why a spellwright can't begin at (x, y), or null if they can. */
+export function placeProblem(w: World, u: Unit, at: Pt): string | null {
+  const t = tileAt(w, at.x, at.y);
+  if (!isWalkable(t) || isLiquid(t)) return 'Choose open, dry ground';
+  if (!findFreeNear(w, at.x, at.y, u.r, u, 40)) return 'No room there';
+  for (const v of w.units) if (v.alive && v.faction === 'enemy' && !UNITS[v.type].prop && dist(v, at) < PLACE_CLEARANCE) return 'Too close to a foe';
+  if (w.portal && dist(w.portal, at) < 40) return 'Not on the portal';
+  return null;
+}
+export const PLACE_CLEARANCE = 140;
 
 /** Every card of the spell can be paid from the hand (each drawn copy once). */
 export function fromHand(hand: string[], cards: string[]): boolean {

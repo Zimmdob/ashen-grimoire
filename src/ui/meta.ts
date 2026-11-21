@@ -96,9 +96,9 @@ export function runOptions(daily = false): WorldOptions {
   if (daily) {
     const seed = dailySeed();
     const ids = Object.keys(CURSES);
-    return { curses: [ids[seed % ids.length]], pool: [], daily: true };
+    return { curses: [ids[seed % ids.length]], pool: [], daily: true, placement: true };
   }
-  return { curses: [...meta.curses], pool, daily: false };
+  return { curses: [...meta.curses], pool, daily: false, placement: true };
 }
 
 // ---------------------------------------------------------------- Ash and the Codex

@@ -40,6 +40,7 @@ function cleanOpts(o: WorldOptions | undefined): WorldOptions {
     curses: Array.isArray(o?.curses) ? o!.curses!.filter((c) => typeof c === 'string').slice(0, 8) : [],
     pool: Array.isArray(o?.pool) ? o!.pool!.filter((c) => typeof c === 'string').slice(0, 200) : [],
     daily: !!o?.daily,
+    placement: o?.placement !== false,
   };
 }
 

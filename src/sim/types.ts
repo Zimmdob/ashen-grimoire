@@ -92,6 +92,8 @@ export interface PlayerState {
   picked: boolean;
   points: number;
   ready: boolean;
+  /** Has chosen where to begin this depth (placement phase). */
+  placed: boolean;
   left?: boolean;
   cls: WizardClass;
   runes: string[];
@@ -136,7 +138,7 @@ export interface PlayerState {
 }
 export type GearSlot = 'focus' | 'charm' | 'cloak' | 'boots';
 
-export type Phase = 'planning' | 'allies' | 'enemies' | 'levelup' | 'camp' | 'dead' | 'victory';
+export type Phase = 'placing' | 'planning' | 'allies' | 'enemies' | 'levelup' | 'camp' | 'dead' | 'victory';
 export type Stat = 'vitality' | 'arcana' | 'stride' | 'reach';
 
 export interface RunState {
@@ -158,6 +160,8 @@ export interface WorldOptions {
   /** Card ids allowed in offers and scrolls (meta-progression unlocks). Empty = all. */
   pool?: string[];
   daily?: boolean;
+  /** Each depth opens with every spellwright choosing where to appear (Spellmasons-style). */
+  placement?: boolean;
 }
 
 export interface World {
@@ -215,6 +219,7 @@ export type Action =
   | { t: 'route'; pid: string; choice: number }
   | { t: 'equip'; pid: string; item: string }
   | { t: 'event'; pid: string; choice: number }
+  | { t: 'place'; pid: string; x: number; y: number }
   | { t: 'duet'; pid: string };
 
 export interface ActionResult { ok: boolean; err?: string }

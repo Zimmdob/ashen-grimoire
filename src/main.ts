@@ -5,7 +5,7 @@ import '@fontsource/im-fell-english';
 import { BH, BW, GameRenderer, SC } from './render/renderer';
 import { CARDS } from './sim/cards';
 import { RULES, UPGRADES } from './sim/constants';
-import { biomeOf, fromHand, playerState, playerUnit, previewCast } from './sim/game';
+import { biomeOf, fromHand, PLACE_CLEARANCE, placeProblem, playerState, playerUnit, previewCast } from './sim/game';
 import { predictThreats } from './sim/ai';
 import { findPath } from './sim/path';
 import { cantAfford, spellCost, type SpellPrice } from './sim/spell';
@@ -184,6 +184,17 @@ const fingers = new Map<number, { x: number; y: number; sx: number; sy: number; 
 let holdTimer = 0;
 let panning = false;
 
+/** Placement phase: this player still has to choose where to begin. */
+const placingNow = () => !!W && W.phase === 'placing' && !!me() && !me()!.placed && !R.blocked;
+function placeAt(p: Pt) {
+  const ps = me(), u = myUnit();
+  if (!W || !ps || !u) return;
+  const why = placeProblem(W, u, p);
+  if (why) { toast(why); return; }
+  send({ t: 'place', pid: ps.pid, x: p.x, y: p.y });
+  R.camOff = { x: 0, y: 0 };
+}
+
 function castAt(aim: Pt) {
   if (!W || !T) return;
   if (!canAct()) { if (!R.busy && me()?.endedTurn) toast('Waiting for your companions'); return; }
@@ -249,6 +260,7 @@ canvas.addEventListener('pointerdown', (e) => {
     panning = false;
     if (touchMode === 'look') return;
     if (spell.length) { mouse = wp; aimPt = aimOf(wp); dirty = true; return; }
+    if (W?.phase === 'placing') { mouse = wp; return; }
     // hold to walk continuously; a quick tap is handled on release
     holdTimer = window.setTimeout(() => { if (!panning) startWalk(e, mouse ?? wp); }, 170);
     mouse = wp;
@@ -264,6 +276,7 @@ canvas.addEventListener('pointerdown', (e) => {
     return;
   }
   if (e.button !== 0) return;
+  if (placingNow()) { placeAt(wp); return; }
   if (spell.length) castAt(aimOf(wp));
   else if (canAct()) toast('Hold right-click to walk. Click cards to forge a spell.');
   else if (!R.busy && me()?.endedTurn) toast('Waiting for your companions');
@@ -280,6 +293,7 @@ function endPointer(e: PointerEvent) {
   if (!quick || !W) return;
   const b = toBuffer(e);
   const wp = R.screenToWorld(b.x, b.y);
+  if (placingNow()) { placeAt(wp); return; }
   const u = unitAt(wp);
   if (u) { pinnedId = pinnedId === u.id ? null : u.id; hoverId = pinnedId; dirty = true; return; }
   pinnedId = null; hoverId = null;
@@ -470,13 +484,24 @@ function refreshHud() {
   for (const c of $('queue').querySelectorAll<HTMLButtonElement>('.chip')) c.addEventListener('click', () => { spell.splice(Number(c.dataset.i), 1); dirty = true; });
   const bad = !!cantAfford(ps, u, cost);
   const lethal = !!spell.length && !!cachedPv?.selfDies;
-  $('qcost').innerHTML = spell.length ? `Costs <span class="${bad ? 'bad' : ''}">${priceText(ps, cost)}</span>. ${lethal ? '<span class="bad">Aimed here, this spell kills you.</span>' : (coarse ? (aimPt ? 'Press Cast, or tap to re-aim.' : 'Tap a target within the violet ring to aim.') : 'Click a target within the violet ring.')}` : coarse ? `Hold the map to walk · tap to move or inspect · long-press a card to read it · Reach ${u.range}` : `Hold right-click to walk · Reach ${u.range} · Esc clears the spell · Space ends the turn`;
+  if (W.phase !== 'placing') $('qcost').innerHTML = spell.length ? `Costs <span class="${bad ? 'bad' : ''}">${priceText(ps, cost)}</span>. ${lethal ? '<span class="bad">Aimed here, this spell kills you.</span>' : (coarse ? (aimPt ? 'Press Cast, or tap to re-aim.' : 'Tap a target within the violet ring to aim.') : 'Click a target within the violet ring.')}` : coarse ? `Hold the map to walk · tap to move or inspect · long-press a card to read it · Reach ${u.range}` : `Hold right-click to walk · Reach ${u.range} · Esc clears the spell · Space ends the turn`;
+  if (W.phase === 'placing') {
+    const others = W.players.filter((p) => !p.placed && !p.left && p.pid !== ps.pid).map((p) => esc(p.name));
+    const html = ps.placed
+      ? `Waiting for ${others.join(', ') || 'your companions'} to choose where to begin.`
+      : `<b>Choose where to begin.</b> ${coarse ? 'Tap' : 'Click'} open ground outside the red circles around foes. <button type="button" class="btn small ember" id="placeHere">Begin where I stand</button>`;
+    if ($('qcost').dataset.place !== html) {
+      $('qcost').dataset.place = html;
+      $('qcost').innerHTML = html;
+      document.getElementById('placeHere')?.addEventListener('click', () => { const me0 = myUnit(); if (me0) placeAt({ x: me0.x, y: me0.y }); });
+    }
+  } else $('qcost').dataset.place = '';
   document.body.classList.toggle('forging', spell.length > 0);
   $<HTMLButtonElement>('castBtn').disabled = !aimPt || !spell.length;
   const waiting = ps.endedTurn && W.phase === 'planning';
   $<HTMLButtonElement>('endBtn').disabled = W.phase !== 'planning' || ps.endedTurn || !u.alive;
   $('endBtn').textContent = waiting ? 'Waiting…' : 'End turn';
-  const phaseTxt = W.phase === 'enemies' || R.blocked ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
+  const phaseTxt = W.phase === 'placing' ? 'Choose where to begin' : W.phase === 'enemies' || R.blocked ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
   const b = biomeOf(W);
   const moon = W.run.bloodMoon ? ' · <span class="bad">Blood moon</span>' : '';
   $('banner').innerHTML = `${esc(b.name)} · ${esc(floorName(W))}<small>Depth ${roman(W.level)} · ${phaseTxt} · ${W.kills} slain${moon}</small><small class="rule">${esc(b.rule)}</small>`;
@@ -543,6 +568,14 @@ function updateOverlays() {
   const u = myUnit();
   const o = R.ov;
   o.hoverId = hoverId;
+  R.reveal = W.phase === 'placing';
+  o.place = null;
+  if (placingNow() && u && mouse) {
+    o.place = {
+      x: mouse.x, y: mouse.y, ok: !placeProblem(W, u, mouse), clear: PLACE_CLEARANCE,
+      foes: W.units.filter((v) => v.alive && v.faction === 'enemy' && !UNITS[v.type].prop).map((v) => ({ x: v.x, y: v.y })),
+    };
+  }
   const idle = !R.blocked && W.phase === 'planning';
   o.castRing = null; o.aim = null; o.path = null; o.targets = new Set(); o.after = null;
   if (idle && ps && u && u.alive && !ps.endedTurn && spell.length && coarse && !aimPt) o.castRing = { x: u.x, y: u.y, r: u.range };
@@ -749,7 +782,7 @@ function phaseScreen(soft = false) {
     $('sanct').addEventListener('click', sanctum);
     return;
   }
-  if (W.phase === 'planning') hideOverlay();
+  if (W.phase === 'planning' || W.phase === 'placing') hideOverlay();
 }
 
 function startSolo(seed = (Math.random() * 2 ** 31) | 0, daily = false) {

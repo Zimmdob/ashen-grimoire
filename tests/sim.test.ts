@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, enterCampForTest, createWorld, playerUnit, previewCast } from '../src/sim/game';
+import { applyAction, enterCampForTest, createWorld, placeProblem, playerUnit, previewCast } from '../src/sim/game';
 import { CARD_IDS, CARDS } from '../src/sim/cards';
 import { predictThreats } from '../src/sim/ai';
 import { rand } from '../src/sim/rng';
@@ -317,6 +317,30 @@ describe('systems', () => {
     w.run.tier = 3;
     enterCampForTest(w);
     expect(ps.event?.id).not.toBe('sydney');
+  });
+
+  it('placement: each depth opens with everyone choosing where to begin', () => {
+    const w = createWorld(11, [{ pid: 'p1', name: 'A' }, { pid: 'p2', name: 'B' }], { placement: true });
+    expect(w.phase).toBe('placing');
+    const ua = playerUnit(w, w.players[0]);
+    expect(applyAction(w, { t: 'move', pid: 'p1', x: ua.x + 30, y: ua.y }).ok).toBe(false);
+    const foe = w.units.find((v) => v.alive && v.faction === 'enemy' && !UNITS[v.type].prop)!;
+    expect(applyAction(w, { t: 'place', pid: 'p1', x: foe.x + 20, y: foe.y }).ok).toBe(false);
+    // find an open spot far from every foe
+    let spot: { x: number; y: number } | null = null;
+    for (let y = 1; y < w.MH - 1 && !spot; y++) for (let x = 1; x < w.MW - 1 && !spot; x++) {
+      const p = { x: x * 32 + 16, y: y * 32 + 16 };
+      if (!placeProblem(w, ua, p)) spot = p;
+    }
+    expect(spot).not.toBeNull();
+    expect(applyAction(w, { t: 'place', pid: 'p1', x: spot!.x, y: spot!.y }).ok).toBe(true);
+    expect(Math.hypot(ua.x - spot!.x, ua.y - spot!.y)).toBeLessThan(41);
+    expect(w.phase).toBe('placing'); // still waiting for B
+    expect(applyAction(w, { t: 'place', pid: 'p1', x: spot!.x, y: spot!.y }).ok).toBe(false);
+    const ub = playerUnit(w, w.players[1]);
+    expect(applyAction(w, { t: 'place', pid: 'p2', x: ub.x, y: ub.y }).ok || !!placeProblem(w, ub, ub)).toBe(true);
+    if (w.phase === 'placing') applyAction(w, { t: 'place', pid: 'p2', x: spot!.x + 40, y: spot!.y });
+    expect(w.phase).toBe('planning');
   });
 
   it('co-op: Bond fills from resonance and revives; a Duet makes spells free and stronger', () => {
