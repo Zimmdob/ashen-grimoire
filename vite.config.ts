@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 
 /**
@@ -9,7 +10,9 @@ function offlineCache(): Plugin {
     name: 'ashen-offline-cache',
     apply: 'build',
     generateBundle(_opts, bundle) {
-      const files = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './voice/sydney.wav', './voice/sydney.json',
+      const files = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
+        // voice clips are private (not in the public repo), so only cache them when present
+        ...(existsSync('public/voice/sydney.wav') ? ['./voice/sydney.wav', './voice/sydney.json'] : []),
         ...Object.keys(bundle).map((f) => `./${f}`)];
       let h = 0;
       for (const c of files.join('|')) h = (Math.imul(h, 31) + c.charCodeAt(0)) | 0;
