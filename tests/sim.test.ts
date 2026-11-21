@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyAction, createWorld, playerUnit, previewCast } from '../src/sim/game';
+import { applyAction, enterCampForTest, createWorld, playerUnit, previewCast } from '../src/sim/game';
 import { CARD_IDS, CARDS } from '../src/sim/cards';
 import { predictThreats } from '../src/sim/ai';
 import { rand } from '../src/sim/rng';
@@ -298,6 +298,25 @@ describe('systems', () => {
     ps.event = { id: 'smith', done: false };
     expect(applyAction(w, { t: 'event', pid: 'p1', choice: 0 }).ok).toBe(false); // needs ember
     void me;
+  });
+
+  it('Sydney visits camp, grades the grimoire and teaches a spell', () => {
+    const { w, ps } = fresh();
+    w.run.tier = 2;
+    w.run.sydneyAt = -9;
+    ps.cards = ['sever', 'repel', 'circle'];
+    enterCampForTest(w);
+    expect(ps.event?.id).toBe('sydney');
+    expect(ps.event?.offer?.length).toBe(4);
+    const want = ps.event!.offer![0];
+    const before = ps.cards.length;
+    expect(applyAction(w, { t: 'event', pid: 'p1', choice: 0 }).ok).toBe(true);
+    expect(ps.cards).toContain(want);
+    expect(ps.cards.length).toBe(before + 1);
+    // not two camps running
+    w.run.tier = 3;
+    enterCampForTest(w);
+    expect(ps.event?.id).not.toBe('sydney');
   });
 
   it('co-op: Bond fills from resonance and revives; a Duet makes spells free and stronger', () => {

@@ -11,7 +11,7 @@ import { cantAfford, executeSpell, spellCost } from './spell';
 import { choirRevive, spawnShade, think } from './ai';
 import { makeElder, makeUnit, UNITS } from './units';
 import { BIOMES, makeRoute } from './biomes';
-import { chooseEvent, EVENT_IDS } from './events';
+import { chooseEvent, EVENT_IDS, sydneyGrade, sydneyOffer } from './events';
 import { cleanLook, emptyGear, emptyMats, GEAR, INSCRIBE_COST, LEARN_COST, MUTATIONS, ORIGINS, RECIPES, traitBudget, TRAITS } from './character';
 
 // Turn state machine:
@@ -291,10 +291,15 @@ function enterLevelUp(w: World) {
 function enterCamp(w: World) {
   w.phase = 'camp';
   w.beat++;
+  // Sydney visits about one camp in four (never two camps running, and always once by the third camp).
+  const last = w.run.sydneyAt ?? -9;
+  const sydney = w.run.tier - last > 1 && (rand(w) < 0.25 || (last < 0 && w.run.tier >= 2));
+  if (sydney) w.run.sydneyAt = w.run.tier;
   for (const ps of w.players) {
     ps.ready = false; ps.routeVote = -1; ps.rested = false;
-    ps.event = { id: EVENT_IDS[randInt(w, EVENT_IDS.length)], done: false };
+    ps.event = sydney ? { id: 'sydney', done: false, offer: sydneyOffer(w, ps), grade: sydneyGrade(ps).grade } : { id: EVENT_IDS[randInt(w, EVENT_IDS.length)], done: false };
   }
+  if (sydney) log(w, 'A lantern bobs out of the dark. Sydney, the Lantern-Wright, has found your camp.');
   emit(w, { k: 'phase', phase: 'camp' });
   log(w, 'You make camp. Cook, craft, rest, and choose the road ahead.');
 }
@@ -798,3 +803,6 @@ export function previewCast(w: World, pid: string, cards: string[], aim: Pt): Ca
 }
 
 export { TILE, T_FLOOR, ORIGINS };
+
+/** Test hook: make camp now. */
+export const enterCampForTest = (w: World) => enterCamp(w);

@@ -16,7 +16,7 @@ import { LocalTransport, NetTransport, type Transport } from './net/transport';
 import { dailySeed, DEFAULT_SERVER } from './net/protocol';
 import { BIOMES } from './sim/biomes';
 import { CLASSES, GEAR, INSCRIBE_COST, LEARN_COST, MAT_IDS, MAT_NAMES, MUTATIONS, ORIGINS, RECIPES, TRAITS } from './sim/character';
-import { EVENTS } from './sim/events';
+import { eventFor, SYDNEY_LOOK } from './sim/events';
 import { ACHIEVEMENTS, bankRun, buyUnlock, checkAchievements, CURSE_ASH, CURSES, meta, observe, runOptions, saveMeta, setupFor, UNLOCKS } from './ui/meta';
 import { openCreator, portrait, whoLine } from './ui/creator';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
@@ -667,7 +667,7 @@ function phaseScreen(soft = false) {
     return;
   }
   if (W.phase === 'camp' && ps && u) {
-    const key = `C|${ps.event?.done}|${u.maxHp}|${u.maxStam}|${ps.bag.join()}|${Object.values(ps.gear).join()}|${JSON.stringify(ps.mats)}|${ps.oil}|${ps.satiety}|${u.hp}|${ps.rested}|${ps.routeVote}|${ps.ready}|${ps.cards.join()}|${JSON.stringify(ps.cardLevels)}|${ps.buffs.join()}|${ps.pendingMutations}|${ps.corruption}|${W.players.map((p) => `${p.ready}${p.routeVote}`).join()}`;
+    const key = `C|${ps.event?.id}|${ps.event?.done}|${u.maxHp}|${u.maxStam}|${ps.bag.join()}|${Object.values(ps.gear).join()}|${JSON.stringify(ps.mats)}|${ps.oil}|${ps.satiety}|${u.hp}|${ps.rested}|${ps.routeVote}|${ps.ready}|${ps.cards.join()}|${JSON.stringify(ps.cardLevels)}|${ps.buffs.join()}|${ps.pendingMutations}|${ps.corruption}|${W.players.map((p) => `${p.ready}${p.routeVote}`).join()}`;
     if (soft && key === screenKey) return;
     screenKey = key;
     const mats = MAT_IDS.map((m) => `<span class="${ps.mats[m] ? '' : 'dim'}">${MAT_NAMES[m]} <b>${ps.mats[m]}</b></span>`).join('');
@@ -685,8 +685,9 @@ function phaseScreen(soft = false) {
       const b = BIOMES[id];
       return `<button type="button" class="road ${ps.routeVote === i ? 'on' : ''}" data-road="${i}" style="--c:#${b.pal.torch.toString(16).padStart(6, '0')}"><b>${esc(b.name)}</b><span>${esc(b.blurb)}</span><span class="k">${esc(b.rule)}${b.cold ? ' · cold' : ''}${b.oilMul > 1 ? ' · the dark drinks oil' : ''}</span>${votes(i) ? `<span class="votes">Chosen by ${votes(i)}</span>` : ''}</button>`;
     }).join('');
-    const ev = ps.event && EVENTS[ps.event.id];
-    const evHtml = ev ? `<div class="event"><h3 class="sub">${esc(ev.name)}</h3><p>${esc(ev.text)}</p>${ps.event!.done ? `<p class="k">${esc(ps.event!.result ?? '')}</p>` : `<div class="row">${ev.choices.map((c, i) => { const why = c.needs?.(ps, u); return `<button type="button" class="btn small" data-ev="${i}" ${why ? `disabled title="${esc(why)}"` : ''}>${esc(c.label)}</button>`; }).join('')}</div>`}</div>` : '';
+    const ev = eventFor(ps);
+    const sydney = ps.event?.id === 'sydney';
+    const evHtml = ev ? `<div class="event ${sydney ? 'sydney' : ''}">${sydney ? `<img class="npc" alt="Sydney" src="${portrait(SYDNEY_LOOK as Look, 6)}">` : ''}<h3 class="sub">${esc(ev.name)}</h3><p>${esc(ev.text)}</p>${ps.event!.done ? `<p class="k">${esc(ps.event!.result ?? '')}</p>` : `<div class="row">${ev.choices.map((c, i) => { const why = c.needs?.(ps, u); return `<button type="button" class="btn small" data-ev="${i}" ${why ? `disabled title="${esc(why)}"` : ''}>${esc(c.label)}</button>`; }).join('')}</div>`}</div>` : '';
     showOverlay(`<div class="panel wide"><h2>Bonfire camp</h2><p>${esc(regionName(W))} lies behind you. Health ${u.hp}/${u.maxHp} · Lantern ${Math.round(ps.oil)}/${ps.maxOil} · Fed ${ps.satiety} · Corruption ${ps.corruption}${ps.buffs.length ? ` · Ready for the road: ${esc(ps.buffs.join(', '))}` : ''}</p>
       ${evHtml}${mutationHtml(ps)}${gearHtml(ps)}
       <div class="mats">${mats}</div>

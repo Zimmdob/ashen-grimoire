@@ -14,6 +14,65 @@ export interface EventChoice {
 }
 export interface EventDef { name: string; text: string; choices: EventChoice[] }
 
+// ---- Sydney, the Lantern-Wright: a wandering teacher who turns up at camp now and then, looks over
+// your grimoire, gives it a grade, and teaches you something.
+export const SYDNEY_LOOK = { race: 0, gender: 1, build: 2, skin: 1, hair: 3, hairColor: 9, beard: 0, eyes: 1, outfit: 0, robe: 6, trim: 0, head: 3, orb: 0 };
+
+/** Her grade for a grimoire: more spells and more inscriptions earn a better mark. */
+const GRADE_NOTES: Record<string, string> = {
+  'A+': 'Gold star. Honestly, I could not have written this better myself.',
+  A: 'Neat, thorough, and you even showed your work. I am proud of you.',
+  'B+': 'Good effort. A few more spells and this is top of the class.',
+  B: 'Solid, but your margins are full of scorch marks. Neater, please.',
+  C: 'This is a good start, but it is a little thin. Let me help.',
+};
+export function sydneyGrade(ps: PlayerState): { grade: string; note: string } {
+  if (ps.event?.grade && GRADE_NOTES[ps.event.grade]) return { grade: ps.event.grade, note: GRADE_NOTES[ps.event.grade] };
+  const marks = Object.values(ps.cardLevels).reduce((a, b) => a + b, 0);
+  const score = ps.cards.length + marks * 2;
+  if (score >= 16) return { grade: 'A+', note: 'Gold star. Honestly, I could not have written this better myself.' };
+  if (score >= 12) return { grade: 'A', note: 'Neat, thorough, and you even showed your work. I am proud of you.' };
+  if (score >= 9) return { grade: 'B+', note: 'Good effort. A few more spells and this is top of the class.' };
+  if (score >= 6) return { grade: 'B', note: 'Solid, but your margins are full of scorch marks. Neater, please.' };
+  return { grade: 'C', note: 'This is a good start, but it is a little thin. Let me help.' };
+}
+
+/** What she offers, chosen when camp is made: three spells you lack, and one you know to mark up. */
+export function sydneyOffer(w: World, ps: PlayerState): string[] {
+  const allowed = w.opts.pool?.length ? new Set(w.opts.pool) : null;
+  const lacks = Object.keys(CARDS).filter((c) => !ps.cards.includes(c) && !CARDS[c].cls && (!allowed || allowed.has(c)));
+  const pick: string[] = [];
+  while (pick.length < 3 && lacks.length) pick.push(lacks.splice(Math.floor(rand(w) * lacks.length), 1)[0]);
+  const known = ps.cards.filter((c) => CARDS[c].mode !== 'mod' && (ps.cardLevels[c] ?? 0) < 2);
+  pick.push(known.length ? known[Math.floor(rand(w) * known.length)] : '');
+  return pick;
+}
+
+function sydneyEvent(ps: PlayerState): EventDef {
+  const offer = ps.event?.offer ?? [];
+  const { grade, note } = sydneyGrade(ps);
+  const learn = offer.slice(0, 3).filter(Boolean).map((c): EventChoice => ({
+    label: `Learn ${CARDS[c].name}`,
+    run: (_w, p) => { if (!p.cards.includes(c)) p.cards.push(c); return `She guides your hand through the sigils. ${CARDS[c].name} is yours. "Practise that one tonight."`; },
+  }));
+  const ink = offer[3];
+  const mark: EventChoice[] = ink ? [{
+    label: `Have her mark up ${CARDS[ink].name}`,
+    run: (_w, p) => { p.cardLevels[ink] = Math.min(2, (p.cardLevels[ink] ?? 0) + 1); return `She corrects three lines and underlines one twice. ${CARDS[ink].name} grows stronger. "See? Much better."`; },
+  }] : [];
+  return {
+    name: 'Sydney, the Lantern-Wright',
+    text: `A red-haired witch in a wide-brimmed hat sits down by your fire, lantern in her lap. "Let me see your homework." She leafs through your grimoire and writes a big ${grade} on the first page. "${note}" Then she offers to teach you something.`,
+    choices: [...learn, ...mark],
+  };
+}
+
+/** The event a player faces at camp (Sydney's is built from her offer). */
+export function eventFor(ps: PlayerState): EventDef | null {
+  if (!ps.event) return null;
+  return ps.event.id === 'sydney' ? sydneyEvent(ps) : EVENTS[ps.event.id] ?? null;
+}
+
 const mats = (k: keyof PlayerState['mats'], n: number) => (ps: PlayerState) => (ps.mats[k] >= n ? null : `needs ${n} ${k}`);
 
 export const EVENTS: Record<string, EventDef> = {
@@ -137,7 +196,7 @@ export const EVENT_IDS = Object.keys(EVENTS);
 /** Resolve a player's choice. Returns the outcome text, or an error. */
 export function chooseEvent(w: World, ps: PlayerState, u: Unit, choice: number): { ok: boolean; text: string } {
   if (!ps.event || ps.event.done) return { ok: false, text: 'No one waits at the fire' };
-  const ev = EVENTS[ps.event.id];
+  const ev = eventFor(ps);
   const c = ev?.choices[choice];
   if (!c) return { ok: false, text: 'No such choice' };
   const why = c.needs?.(ps, u);

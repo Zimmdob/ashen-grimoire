@@ -132,7 +132,7 @@ export interface PlayerState {
   /** Unequipped finds (at most 6). */
   bag: string[];
   /** This camp's stranger at the fire. */
-  event: { id: string; done: boolean; result?: string } | null;
+  event: { id: string; done: boolean; result?: string; offer?: string[]; grade?: string } | null;
 }
 export type GearSlot = 'focus' | 'charm' | 'cloak' | 'boots';
 
@@ -140,6 +140,8 @@ export type Phase = 'planning' | 'allies' | 'enemies' | 'levelup' | 'camp' | 'de
 export type Stat = 'vitality' | 'arcana' | 'stride' | 'reach';
 
 export interface RunState {
+  /** Tier of the camp where Sydney last appeared (-9 if not yet this run). */
+  sydneyAt?: number;
   /** Region choices per tier, biome ids. */
   route: string[][];
   tier: number;

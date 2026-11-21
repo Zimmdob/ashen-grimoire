@@ -287,3 +287,6 @@ body.touch .card { touch-action: manipulation; user-select: none; -webkit-user-s
   .thumbs { grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); }
   .thumb img { width: 40px; height: 40px; }
 }
+.event.sydney { border-color: #d8642a; background: linear-gradient(#1c120c, #120a08); box-shadow: 0 0 18px #d8642a33; }
+.event .npc { float: left; width: 96px; height: 96px; image-rendering: pixelated; margin: 0 12px 6px 0; background: radial-gradient(#3a2414, #0a0606 70%); border: 1px solid #5a4030; }
+.event::after { content: ''; display: block; clear: both; }
