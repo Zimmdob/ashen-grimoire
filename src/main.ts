@@ -1089,7 +1089,8 @@ function title() {
       ? '<li>Hold a finger on the map to walk toward it, or tap the ground to walk there. Tap a body to inspect it. Drag with two fingers (or switch to Look) to pan.</li><li>Tap cards to forge a spell; they resolve left to right. Long-press a card to read it.</li><li>Tap the map to aim: the preview shows exactly what will happen. Then press Cast.</li><li>Foes outlined in red will strike you next turn. Codex (top right) holds the chronicle and help.</li>'
       : '<li>Hold right-click to walk toward the cursor; it spends stamina. WASD moves the camera.</li><li>Click cards (or press 1–0) to forge a spell. Cards resolve left to right: targeting cards widen who is hit, effect cards strike everything targeted so far.</li><li>Left-click within the violet ring to cast. The preview shows exactly what will happen.</li><li>Foes outlined in red will strike you next turn. Space ends your turn.</li>'}
     <li>Between regions you make camp: craft with what you gathered, inscribe your spells, and vote on the road ahead.</li></ol>
-    <p class="k">Runs: ${meta.runs} · Victories: ${meta.wins} · Deepest: ${meta.bestDepth ? `depth ${roman(meta.bestDepth)}` : 'none yet'}${meta.dailyBest[today] ? ` · Today's rite: depth ${roman(meta.dailyBest[today])}` : ''}</p></div>`);
+    <p class="k">Runs: ${meta.runs} · Victories: ${meta.wins} · Deepest: ${meta.bestDepth ? `depth ${roman(meta.bestDepth)}` : 'none yet'}${meta.dailyBest[today] ? ` · Today's rite: depth ${roman(meta.dailyBest[today])}` : ''}</p>
+    <p class="k ver">Version ${BUILD.time ? new Date(BUILD.time * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'dev'} · ${esc(BUILD.sha.slice(0, 7))}</p></div>`);
   $('solo').addEventListener('click', () => startSolo());
   $('daily').addEventListener('click', () => startSolo(0, true));
   $('coop').addEventListener('click', coopScreen);
