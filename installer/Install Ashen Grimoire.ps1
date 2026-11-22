@@ -9,7 +9,7 @@ if (-not (Test-Path $zip)) { Fail 'AshenGrimoireApp.zip is missing from this fol
 
 Write-Host 'Closing Ashen Grimoire if it is running...'
 # every copy of the game, its hidden helper processes, and its friend-link helper
-& taskkill.exe /F /T /IM 'Ashen Grimoire.exe' 2>&1 | Out-Null
+cmd.exe /c 'taskkill /F /T /IM "Ashen Grimoire.exe" >nul 2>&1'
 for ($i = 0; $i -lt 20; $i++) {
   $left = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($dest, [StringComparison]::OrdinalIgnoreCase) })
   if ($left.Count -eq 0) { break }

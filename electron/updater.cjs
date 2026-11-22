@@ -139,7 +139,7 @@ try {
   for ($i = 0; $i -lt 30; $i++) {
     $left = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase) })
     if ($left.Count -eq 0) { break }
-    if ($i -eq 6) { Note 'Closing leftover game processes...'; & taskkill.exe /F /T /IM 'Ashen Grimoire.exe' 2>&1 | Out-Null }
+    if ($i -eq 6) { Note 'Closing leftover game processes...'; cmd.exe /c 'taskkill /F /T /IM "Ashen Grimoire.exe" >nul 2>&1' }
     if ($i -gt 6) { $left | Stop-Process -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 500
   }
