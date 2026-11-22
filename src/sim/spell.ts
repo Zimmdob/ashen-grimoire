@@ -45,6 +45,7 @@ export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt, z
       if (id === 'echo') repeat = 2;
       if (id === 'overcharge') boost *= 2;
       emit(w, { k: 'float', id: caster.id, text: c.name, color: 0xc0a0ff });
+      emit(w, { k: 'cast', card: id, x: caster.x, y: caster.y, pts: [], power: 1 });
       continue;
     }
     const level = ps?.cardLevels[id] ?? 0;
@@ -52,6 +53,10 @@ export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt, z
     for (let r = 0; r < repeat; r++) {
       w.beat++;
       ctx.stack[id] = (ctx.stack[id] ?? 0) + 1;
+      if (c.mode !== 'target') {
+        const hit = c.mode === 'first' ? ctx.targets.slice(0, 1) : c.mode === 'any' ? ctx.targets : ctx.targets.filter(isUnit);
+        emit(w, { k: 'cast', card: id, x: caster.x, y: caster.y, pts: hit.slice(0, 24).map((t) => ({ x: Math.round(t.x), y: Math.round(t.y) })), power: ctx.pw });
+      }
       if (c.mode === 'target') c.run(ctx, ctx.targets[0]);
       else if (c.mode === 'first') c.run(ctx, ctx.targets[0]);
       else for (const t of [...ctx.targets]) if (c.mode === 'any' || isUnit(t)) c.run(ctx, t);

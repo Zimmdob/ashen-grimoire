@@ -69,9 +69,13 @@
         <button id="musicBtn" class="btn small" type="button">Music on</button>
         <label class="vol">Volume <input id="musicVol" type="range" min="0" max="100" step="1" aria-label="Music volume"></label>
         <button id="muteBtn" class="btn small" type="button">Sound on</button>
+        <button id="guideBtn" class="btn small" type="button" title="What everything does (G)">Field Guide</button>
+        <button id="styleBtn" class="btn small" type="button" title="Music style: Mixed plays dreamwave in menus and camp, dungeon synth while delving">Style: Mixed</button>
       </div>
     </aside>
   </div>
   <script type="module" src="/src/main.ts"></script>
+  <div id="gloss" role="tooltip"></div>
+  <div id="guide" role="dialog" aria-label="Field Guide"></div>
 </body>
 </html>

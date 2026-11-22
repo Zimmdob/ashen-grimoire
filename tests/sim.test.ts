@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { applyAction, enterCampForTest, createWorld, placeProblem, playerUnit, previewCast } from '../src/sim/game';
 import { CARD_IDS, CARDS } from '../src/sim/cards';
 import { spellCost } from '../src/sim/spell';
+import { SPELL_LOOK_IDS } from '../src/render/spellfx';
 import { predictThreats } from '../src/sim/ai';
 import { rand } from '../src/sim/rng';
 import type { Action, WizardClass, World } from '../src/sim/types';
@@ -462,5 +463,10 @@ describe('systems', () => {
     applyAction(w, { t: 'endTurn', pid: 'p1' });
     expect(w.phase).toBe('planning');
     expect(spellCost(ps, ['sever']).mana).toBe(base);
+  });
+
+  it('every spell that is not a targeting card has its own look', () => {
+    const missing = [...CARD_IDS, 'unleash'].filter((id) => CARDS[id] && CARDS[id].mode !== 'target' && !SPELL_LOOK_IDS.includes(id));
+    expect(missing).toEqual([]);
   });
 });

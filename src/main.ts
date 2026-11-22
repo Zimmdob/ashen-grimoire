@@ -22,9 +22,10 @@ import { sydneyQuestions } from './ui/sydneyTalk';
 let talk = { visit: '', asked: [] as string[], text: '', n: 0 };
 import { ACHIEVEMENTS, bankRun, buyUnlock, checkAchievements, CURSE_ASH, CURSES, meta, observe, runOptions, saveMeta, setupFor, UNLOCKS } from './ui/meta';
 import { openCreator, portrait, whoLine } from './ui/creator';
+import { GLOSSARY, glossCard, guideHtml } from './ui/glossary';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
 import { isMuted, play, setMuted } from './ui/sfx';
-import { music } from './ui/music';
+import { music, STYLE_NAMES, type MusicStyle } from './ui/music';
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -330,6 +331,8 @@ window.addEventListener('keydown', (e) => {
   const k = e.key.toLowerCase();
   keys.add(k);
   if (k === 'f' && !e.repeat && !e.ctrlKey && !e.metaKey) { toggleFullscreen(); return; }
+  if ($('guide').classList.contains('on')) { if (k === 'escape' || k === 'g') closeGuide(); return; }
+  if (k === 'g' && !e.repeat) { openGuide(); return; }
   if ($('overlay').classList.contains('on')) return;
   if (k === 'z' && !e.repeat) { toggleWholeMap(); return; }
   if (k === '-' || k === '_') { zoomBy(1 / 1.25); return; }
@@ -410,6 +413,71 @@ $('fsCodex').addEventListener('click', () => $('codex').classList.toggle('open')
 // The desktop app's F11 calls this (see electron/main.cjs).
 (window as unknown as { __agToggleFs: () => void }).__agToggleFs = () => toggleFullscreen();
 
+// ---------------------------------------------------------------- the Field Guide and its hover cards
+const glossSeen = new Set<string>((() => { try { return JSON.parse(localStorage.getItem('ashen-gloss-seen') ?? '[]') as string[]; } catch { return []; } })());
+function markSeen(key: string) {
+  if (glossSeen.has(key)) return;
+  glossSeen.add(key);
+  try { localStorage.setItem('ashen-gloss-seen', JSON.stringify([...glossSeen])); } catch { /* storage unavailable */ }
+  document.querySelectorAll(`[data-g="${key}"].new`).forEach((el) => el.classList.remove('new'));
+}
+let glossKey = '';
+let glossPinned = false;
+/** "Right now" line for a card: your current amount, where it makes sense. */
+function glossNow(key: string): string {
+  const ps = me(), u = W && ps ? playerUnit(W, ps) : null;
+  if (!ps || !u) return '';
+  if (key === 'health' || key === 'ward') return `You: ${u.hp}/${u.maxHp} health${u.shield ? `, ${u.shield} ward` : ''}`;
+  if (key === 'lantern' || key === 'fuel') return `You: ${Math.round(ps.oil)} of ${ps.maxOil} oil`;
+  if (key === 'fed' || key === 'starving') return `You: Fed ${ps.satiety} of 8`;
+  if (key === 'corruption') return `You: ${ps.corruption} (next mutation at ${(Math.floor(ps.corruption / 25) + 1) * 25})`;
+  if (key === 'chill') return `You: chilled ${ps.chill} of 3`;
+  if (key in ps.mats) return `You carry ${ps.mats[key as keyof typeof ps.mats]}`;
+  return '';
+}
+function showGloss(key: string, anchor: Element, pinned: boolean) {
+  const el = $('gloss');
+  if (key !== glossKey || pinned !== glossPinned) {
+    el.innerHTML = glossCard(key, glossNow(key)) + (pinned ? '<button type="button" class="btn small" id="glossGuide">Open the Field Guide</button>' : '');
+    document.getElementById('glossGuide')?.addEventListener('click', () => openGuide(key));
+  }
+  glossKey = key; glossPinned = pinned;
+  el.classList.add('on');
+  el.classList.toggle('pinned', pinned);
+  markSeen(key);
+  const r = anchor.getBoundingClientRect();
+  const w = el.offsetWidth, h = el.offsetHeight;
+  const x = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2));
+  const y = r.top - h - 10 >= 8 ? r.top - h - 10 : Math.min(innerHeight - h - 8, r.bottom + 10);
+  el.style.left = `${Math.round(x)}px`;
+  el.style.top = `${Math.round(y)}px`;
+}
+function hideGloss() { $('gloss').classList.remove('on', 'pinned'); glossKey = ''; glossPinned = false; }
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerType === 'touch' || glossPinned) return;
+  const t = (e.target as Element | null)?.closest?.('[data-g]');
+  if (t) showGloss((t as HTMLElement).dataset.g!, t, false); else if (glossKey) hideGloss();
+}, { passive: true });
+document.addEventListener('click', (e) => {
+  const t = (e.target as Element | null)?.closest?.('[data-g]');
+  if (t) { const k = (t as HTMLElement).dataset.g!; if (glossPinned && glossKey === k) hideGloss(); else showGloss(k, t, true); return; }
+  if (glossPinned && !(e.target as Element | null)?.closest?.('#gloss')) hideGloss();
+});
+
+function openGuide(focus?: string) {
+  hideGloss();
+  const box = $('guide');
+  box.innerHTML = `<div class="panel guide"><div class="gl-head"><h2>Field Guide</h2><button type="button" class="btn small" id="guideClose">Close</button></div>
+    <p class="k">Everything you carry, find and suffer in the Reach. Hover or tap anything in your status strip for the short version.</p>${guideHtml(glossSeen)}</div>`;
+  box.classList.add('on');
+  $('guideClose').addEventListener('click', closeGuide);
+  for (const k of Object.keys(GLOSSARY)) markSeen(k);
+  if (focus) document.getElementById(`gl-${focus}`)?.scrollIntoView({ block: 'center' });
+}
+function closeGuide() { $('guide').classList.remove('on'); }
+$('guide').addEventListener('click', (e) => { if (e.target === $('guide')) closeGuide(); });
+$('guideBtn').addEventListener('click', () => openGuide());
+
 /** Where the pointer is on screen, for the fullscreen hover card. */
 let clientPt = { x: 0, y: 0 };
 window.addEventListener('pointermove', (e) => { clientPt = { x: e.clientX, y: e.clientY }; placeHoverTip(); }, { passive: true });
@@ -447,6 +515,15 @@ const syncMusicUi = () => { musicBtn.textContent = music.isEnabled() ? 'Music on
 syncMusicUi();
 musicBtn.addEventListener('click', () => { music.setEnabled(!music.isEnabled()); syncMusicUi(); });
 musicVol.addEventListener('input', () => music.setVolume(Number(musicVol.value) / 100));
+const styleBtn = $('styleBtn');
+const paintStyle = () => { styleBtn.textContent = `Style: ${STYLE_NAMES[music.getStyle()]}`; };
+paintStyle();
+styleBtn.addEventListener('click', () => {
+  const order: MusicStyle[] = ['mixed', 'dream', 'dungeon'];
+  music.setStyle(order[(order.indexOf(music.getStyle()) + 1) % order.length]);
+  paintStyle();
+  if (!music.isEnabled()) { music.setEnabled(true); syncMusicUi(); }
+});
 const firstGesture = () => { music.start(); for (const ev of ['pointerdown', 'keydown', 'touchend', 'click']) window.removeEventListener(ev, firstGesture); };
 for (const ev of ['pointerdown', 'keydown', 'touchend', 'click']) window.addEventListener(ev, firstGesture);
 
@@ -557,17 +634,22 @@ function refreshHud() {
   const oilPct = Math.round((100 * ps.oil) / Math.max(1, ps.maxOil));
   const hunger = ps.satiety <= 0 ? '<b class="bad">Starving</b>' : ps.satiety <= 1 ? `<b class="warn">Hungry ${ps.satiety}</b>` : `Fed ${ps.satiety}`;
   const chill = ps.chill >= 3 ? '<b class="bad">Frozen through</b>' : ps.chill > 0 ? `<b class="warn">Chilled ${ps.chill}</b>` : '';
-  const mats = MAT_IDS.filter((m) => ps.mats[m] > 0).map((m) => `${MAT_NAMES[m]} ${ps.mats[m]}`).join(' · ');
   const downed = downedNear();
-  $('surv').innerHTML = `<span title="Lantern oil: your light. When it runs out, Shades come.">Lantern <b class="${oilPct < 25 ? 'bad' : oilPct < 50 ? 'warn' : ''}">${oilPct}%</b></span>
-    <span title="Each floor uses one. Eat rations, or starve and lose health.">${hunger}</span>${chill ? `<span title="Stand near fire, burn, or wear an Ember Cloak.">${chill}</span>` : ''}
-    <span title="Every ${RULES.CORRUPTION_STEP} corruption brings a mutation.">Corruption <b class="${ps.corruption >= 75 ? 'bad' : ''}">${ps.corruption}</b></span>
-    ${ps.cls === 'cagebearer' ? `<span title="Foes dying within 160 of you are caged. Unleash frees the first.">Cage <b>${ps.cage.length}/${ps.maxCage}</b>${ps.cage.length ? `: ${ps.cage.map((t) => esc(UNITS[t].name)).join(', ')}` : ''}</span>` : ''}
-    ${W.players.filter((p) => !p.left).length > 1 ? `<span title="Bond fills as you fight side by side, revive and strike together. At 100, call a Duet: one turn of free spells, half again as strong.">Bond <b class="${W.bond >= 100 ? 'warn' : ''}">${W.bond}</b></span>${W.bond >= 100 && W.phase === 'planning' ? '<button type="button" class="btn small ember" id="duetBtn">Duet!</button>' : ''}` : ''}
+  const g = (key: string, html: string, cls = '') => `<button type="button" class="g ${cls}${glossSeen.has(key) ? '' : ' new'}" data-g="${key}">${html}</button>`;
+  const matChips = MAT_IDS.filter((m) => ps.mats[m] > 0).map((m) => g(m, `${MAT_NAMES[m]} <b>${ps.mats[m]}</b>`, 'mat')).join('');
+  $('surv').innerHTML = `${g('lantern', `Lantern <b class="${oilPct < 25 ? 'bad' : oilPct < 50 ? 'warn' : ''}">${oilPct}%</b>`)}
+    ${g(ps.satiety <= 1 ? 'starving' : 'fed', hunger)}${chill ? g('chill', chill) : ''}
+    ${g('corruption', `Corruption <b class="${ps.corruption >= 75 ? 'bad' : ''}">${ps.corruption}</b>`)}
+    ${ps.cls === 'cagebearer' ? g('cage', `Cage <b>${ps.cage.length}/${ps.maxCage}</b>${ps.cage.length ? `: ${ps.cage.map((t) => esc(UNITS[t].name)).join(', ')}` : ''}`) : ''}
+    ${W.players.filter((p) => !p.left).length > 1 ? `${g('bond', `Bond <b class="${W.bond >= 100 ? 'warn' : ''}">${W.bond}</b>`)}${W.bond >= 100 && W.phase === 'planning' ? '<button type="button" class="btn small ember" id="duetBtn">Duet!</button>' : ''}` : ''}
     ${W.duet === W.turn ? '<b class="warn">Duet: spells are free</b>' : ''}
-    ${W.pickups.some((k) => k.type === 'vault' && !k.used) ? `<span title="Find both keys, then walk into the vault.">Vault keys <b>${W.keys}/2</b></span>` : ''}
-    ${ps.cls === 'tarot' ? `<span title="Each drawn card can be cast once this turn.">Hand <b>${ps.hand.length}</b></span>` : ''}
-    ${mats ? `<span class="mats" title="Materials for camp">${mats}</span>` : ''}${downed ? `<button type="button" class="btn small ember" id="reviveBtn">Revive ${esc(downed.name)} (R)</button>` : ''}`;
+    ${W.pickups.some((k) => k.type === 'vault' && !k.used) ? g('p_key', `Vault keys <b>${W.keys}/2</b>`) : ''}
+    ${ps.cls === 'tarot' ? g('hand', `Hand <b>${ps.hand.length}</b>`) : ''}
+    ${matChips}${downed ? `<button type="button" class="btn small ember" id="reviveBtn">Revive ${esc(downed.name)} (R)</button>` : ''}`;
+  // what the bars are, for the hover cards
+  $('hpTxt').parentElement!.dataset.g = u.shield ? 'ward' : 'health';
+  $('manaTxt').parentElement!.dataset.g = ps.cls === 'soulbinder' ? 'souls' : ps.cls === 'lanternkeeper' ? 'fuel' : ps.cls === 'hexblade' ? 'stamina' : 'mana';
+  $('stamTxt').parentElement!.dataset.g = 'stamina';
   document.getElementById('duetBtn')?.addEventListener('click', () => send({ t: 'duet', pid: ps.pid }));
   document.getElementById('reviveBtn')?.addEventListener('click', () => send({ t: 'revive', pid: ps.pid, target: downed!.pid }));
   if (u.downed > 0) $('surv').insertAdjacentHTML('afterbegin', `<b class="bad">You are down: ${u.downed} turn${u.downed === 1 ? '' : 's'} for a companion to reach you.</b>`);
@@ -654,7 +736,7 @@ function refreshInfoInner() {
   const n = R.ov.threats.size;
   info.innerHTML = `<p>${n ? `<span class="warn">${n} foe${n > 1 ? 's' : ''} outlined in red can strike you next turn${threatDmg ? ` for about ${threatDmg}` : ''}.</span>` : 'No foe can reach you next turn.'}</p>
     <ul><li>Hold right-click to walk toward the cursor. Walking spends stamina.</li><li>Click cards, or press 1–0, to forge a spell; click a target to cast it.</li>
-    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Each card costs 25% more every time you cast it in the same turn. Costs reset at the start of every turn.</li>
+    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Not sure what Lantern, Fed or a material does? Hover or tap it. G opens the Field Guide.</li><li>Each card costs 25% more every time you cast it in the same turn. Costs reset at the start of every turn.</li>
     <li>Shove foes into lava, traps, walls and each other. Urns burst when broken.</li><li>Gold coin: a bounty worth ${RULES.BOUNTY_POINTS} upgrade points. Diamonds: elite affixes.</li>
     <li>Click a bookmark slot to save a spell; F1–F4 recall it. Alt-click pings.</li><li>Hover a foe to see its reach. WASD pans, C recenters.</li>
     <li>Your lantern burns each turn. Oil flasks and braziers refill it; in the dark, Shades hunt you.</li><li>In co-op a fallen companion is only down: stand beside them and press R.</li></ul>`;
@@ -765,6 +847,7 @@ let threatKey = '';
 function loop() {
   requestAnimationFrame(loop);
   frame++;
+  if (!W && frame % 30 === 0) music.setScene('menu');
   const nowT = performance.now();
   const dt = Math.min(100, nowT - lastFrame);
   lastFrame = nowT;
@@ -791,6 +874,7 @@ function loop() {
   if (frame % 2 === 0) updateOverlays();
   if (frame % 10 === 0) {
     music.setMood(biomeOf(W).music);
+    music.setScene(W.phase === 'camp' || W.phase === 'levelup' || W.phase === 'dead' || W.phase === 'victory' ? 'menu' : 'dungeon');
     if (frame % 30 === 0) paintViewbar();
     if (frame % 60 === 0) {
       observe(W, me()?.cards ?? []);

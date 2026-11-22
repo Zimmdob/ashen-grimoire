@@ -249,6 +249,8 @@ type EventBody =
   | { k: 'spawn'; unit: Unit }
   | { k: 'fx'; fx: FxKind; x: number; y: number; x2?: number; y2?: number; r?: number; color: number }
   | { k: 'float'; id: number; text: string; color: number }
+  /** A card resolving: the renderer plays that spell's own look (fire, frost, wind...) at the caster and its targets. */
+  | { k: 'cast'; card: string; x: number; y: number; pts: Pt[]; power: number }
   | { k: 'pickup'; id: number }
   | { k: 'portal'; x: number; y: number }
   | { k: 'log'; text: string }

@@ -7,6 +7,7 @@ import { UNITS } from '../sim/units';
 import { statusOf } from '../sim/combat';
 import { AFFIXES } from '../sim/runes';
 import type { Zone } from '../sim/cards';
+import { paintSpell, spellLook, type SpellFx } from './spellfx';
 import { buildSprites, wizardSprite, type SpriteSet } from './sprites';
 import { drawGrain, drawLava, drawMap, lightBlob } from './mapArt';
 
@@ -166,6 +167,8 @@ export class GameRenderer {
   private beatEnd = 0;
   private needReconcile = false;
   private fx: Fx[] = [];
+  private spells: SpellFx[] = [];
+  private spellSeed = 1;
   private floaters: Floater[] = [];
   private frame = 0;
   cam = { x: 0, y: 0 };
@@ -271,6 +274,13 @@ export class GameRenderer {
       case 'unit': if (v) v.s = { ...e.s }; return 0;
       case 'spawn': if (this.views.has(e.unit.id)) this.removeView(e.unit.id); this.addView(e.unit); return 160;
       case 'fx': this.fx.push({ kind: e.fx, x: e.x, y: e.y, x2: e.x2 ?? e.x, y2: e.y2 ?? e.y, r: e.r ?? 40, color: e.color, t0: now, dur: FX_DUR[e.fx] }); return FX_DUR[e.fx] * 0.55;
+      case 'cast': {
+        const look = spellLook(e.card);
+        if (!look) return 0;
+        this.spells.push({ card: e.card, x: e.x, y: e.y, pts: e.pts, power: e.power, t0: now, dur: look.dur, seed: (this.spellSeed = (this.spellSeed * 7919 + 13) % 100003) });
+        // let the spell's look play a moment before its hits land
+        return Math.min(380, look.dur * 0.45);
+      }
       case 'float': if (v) this.floater(v.x, v.y - 34 * this.scaleOf(v), e.text, e.color); return 160;
       case 'pickup': { const p = this.pickups.get(e.id); if (p) { p.s.destroy(); this.pickups.delete(e.id); } return 0; }
       case 'portal': this.portal = { x: e.x, y: e.y }; return 300;
@@ -521,6 +531,8 @@ export class GameRenderer {
     const g = this.fxG;
     g.clear();
     this.fx = this.fx.filter((f) => now - f.t0 < f.dur);
+    this.spells = this.spells.filter((f) => now - f.t0 < f.dur);
+    for (const f of this.spells) paintSpell(g, f, now);
     for (const f of this.fx) {
       const t = Math.max(0, Math.min(1, (now - f.t0) / f.dur));
       const a = 1 - t;
@@ -860,6 +872,12 @@ export class GameRenderer {
     for (const w of this.snap?.wells ?? []) { L(w.x, w.y, 120, 0.6); G(w.x, w.y, 90, 0x8060ff, 0.3); }
     if (this.portal) { L(this.portal.x, this.portal.y, 180, 1); G(this.portal.x, this.portal.y, 90, 0xb48cff, 0.35); }
     for (const f of this.fx) { L(f.x2 ?? f.x, f.y2 ?? f.y, 110, 0.7); G(f.x, f.y, 60, f.color, 0.25); }
+    for (const f of this.spells) {
+      const look = spellLook(f.card);
+      if (!look) continue;
+      const k = 1 - (now - f.t0) / f.dur;
+      for (const p of (f.pts.length ? f.pts : [f]).slice(0, 6)) { L(p.x, p.y, 90, 0.6 * k); G(p.x, p.y - 10, 50, look.color, 0.3 * k); }
+    }
     for (let i = li; i < this.lightPool.length; i++) this.lightPool[i].visible = false;
     for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
     this.app.renderer.render({ container: this.lightCont, target: this.lightRT, clear: true });
