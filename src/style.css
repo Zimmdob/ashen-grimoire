@@ -428,3 +428,10 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 #updBar .k { color: var(--dim); font-size: 13px; }
 #updBar .warn { color: #ffb070; }
 .ver { opacity: .55; font-size: 13px; }
+/* feedback form */
+#guide .panel.fb { width: min(560px, 100%); }
+.fbkinds { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.fbk { display: flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #5a4030; background: #1a110e; cursor: pointer; font: 18px 'VT323', monospace; }
+.fbk:has(input:checked) { border-color: var(--gold); color: var(--gold); }
+#fbText { width: 100%; box-sizing: border-box; background: #0d0807; color: var(--parch); border: 1px solid #5a4030; padding: 8px 10px; font: 16px/1.35 inherit; resize: vertical; }
+#fbText:focus { outline: 2px solid var(--gold); }

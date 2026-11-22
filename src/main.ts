@@ -25,6 +25,7 @@ import { openCreator, portrait, whoLine } from './ui/creator';
 import { GLOSSARY, glossCard, guideHtml } from './ui/glossary';
 import { BUILD, sameBuild } from './version';
 import { announce, HEARTBEAT_MS, openGames, withdraw, type Posting } from './net/board';
+import { flushFeedback, sendFeedback, type FeedbackKind } from './net/feedback';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
 import { isMuted, play, setMuted } from './ui/sfx';
 import { music, STYLE_NAMES, type MusicStyle } from './ui/music';
@@ -329,7 +330,7 @@ $('codexClose').addEventListener('click', () => $('codex').classList.remove('ope
 $('tip').addEventListener('click', () => { pinnedId = null; hoverId = null; hoverCard = null; dirty = true; });
 new ResizeObserver(() => { R.resize(canvas.clientWidth, canvas.clientHeight); dirty = true; }).observe(canvas);
 window.addEventListener('keydown', (e) => {
-  if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
   const k = e.key.toLowerCase();
   keys.add(k);
   if (k === 'f' && !e.repeat && !e.ctrlKey && !e.metaKey) { toggleFullscreen(); return; }
@@ -476,6 +477,47 @@ function openGuide(focus?: string) {
   if (focus) document.getElementById(`gl-${focus}`)?.scrollIntoView({ block: 'center' });
 }
 function closeGuide() { $('guide').classList.remove('on'); }
+
+// ---------------------------------------------------------------- feedback
+/** What the player is doing right now, attached to feedback if they allow it. */
+function feedbackContext(): string {
+  const bits = [`version ${BUILD.sha}`, agApp ? 'desktop app' : coarse ? 'phone/tablet browser' : 'browser'];
+  const ps = me();
+  if (W && ps) {
+    const u = playerUnit(W, ps);
+    bits.push(`${regionName(W)}, depth ${W.level}, turn ${W.turn}, phase ${W.phase}`, `class ${ps.cls}`, `health ${u.hp}/${u.maxHp}`, `cards ${ps.cards.join(' ')}`, `${W.players.length > 1 ? `co-op with ${W.players.length}` : 'solo'}`, `seed ${W.seed}`);
+  } else bits.push('on the menus');
+  return bits.join(' · ');
+}
+function openFeedback() {
+  hideGloss();
+  const box = $('guide');
+  box.innerHTML = `<div class="panel guide fb"><div class="gl-head"><h2>Feedback</h2><button type="button" class="btn small" id="fbClose">Close</button></div>
+    <p>Found a bug, have an idea, or think something is too strong or too weak? Tell Dean here. It goes straight to his list.</p>
+    <div class="fbkinds" role="radiogroup" aria-label="Kind of feedback">
+      ${(['bug', 'idea', 'balance', 'other'] as FeedbackKind[]).map((k, i) => `<label class="fbk"><input type="radio" name="fbk" value="${k}" ${i === 1 ? 'checked' : ''}> ${{ bug: 'Bug', idea: 'Idea', balance: 'Balance', other: 'Other' }[k]}</label>`).join('')}
+    </div>
+    <textarea id="fbText" maxlength="1500" rows="6" placeholder="What happened, or what would make the game better?"></textarea>
+    <label class="f chk"><input type="checkbox" id="fbCtx" checked> Include what I'm doing right now (depth, class, version)</label>
+    <div class="row"><button type="button" class="btn ember" id="fbSend">Send</button><span class="k" id="fbMsg"></span></div></div>`;
+  box.classList.add('on');
+  $('fbClose').addEventListener('click', closeGuide);
+  $<HTMLTextAreaElement>('fbText').focus();
+  $('fbSend').addEventListener('click', async () => {
+    const text = $<HTMLTextAreaElement>('fbText').value.trim();
+    if (text.length < 3) { $('fbMsg').textContent = 'Write a few words first.'; return; }
+    const kind = (document.querySelector<HTMLInputElement>('input[name="fbk"]:checked')?.value ?? 'other') as FeedbackKind;
+    const btn = $<HTMLButtonElement>('fbSend');
+    btn.disabled = true;
+    $('fbMsg').textContent = 'Sending…';
+    const ok = await sendFeedback({ kind, text, name: setupFor().name, build: BUILD.sha, context: $<HTMLInputElement>('fbCtx').checked ? feedbackContext() : '', t: Date.now() });
+    $('fbMsg').textContent = ok ? 'Sent. Thank you!' : 'Saved. It will send next time you are online.';
+    $<HTMLTextAreaElement>('fbText').value = '';
+    setTimeout(() => { if (box.querySelector('.fb')) closeGuide(); }, 1400);
+  });
+}
+$('feedbackBtn').addEventListener('click', openFeedback);
+setTimeout(() => { flushFeedback(); }, 5000);
 $('guide').addEventListener('click', (e) => { if (e.target === $('guide')) closeGuide(); });
 $('guideBtn').addEventListener('click', () => openGuide());
 
@@ -1083,7 +1125,7 @@ function title() {
     ${charLine()}
     <div class="row"><button type="button" class="btn ember" id="solo">Begin the descent</button><button type="button" class="btn" id="coop">Descend together</button><button type="button" class="btn" id="char">Character</button></div>
     <div class="opengames" id="openGames"></div>
-    <div class="row"><button type="button" class="btn small" id="daily">Daily rite (${today}${dCurse ? `, ${esc(CURSES[dCurse].name)}` : ''})</button><button type="button" class="btn small" id="sanct">Sanctum · ${meta.ash} Ash</button><button type="button" class="btn small" id="codexB">Codex</button></div>
+    <div class="row"><button type="button" class="btn small" id="daily">Daily rite (${today}${dCurse ? `, ${esc(CURSES[dCurse].name)}` : ''})</button><button type="button" class="btn small" id="sanct">Sanctum · ${meta.ash} Ash</button><button type="button" class="btn small" id="codexB">Codex</button><button type="button" class="btn small" id="fbB">Feedback</button></div>
     ${curseHtml()}
     <ol class="howto">${coarse
       ? '<li>Hold a finger on the map to walk toward it, or tap the ground to walk there. Tap a body to inspect it. Drag with two fingers (or switch to Look) to pan.</li><li>Tap cards to forge a spell; they resolve left to right. Long-press a card to read it.</li><li>Tap the map to aim: the preview shows exactly what will happen. Then press Cast.</li><li>Foes outlined in red will strike you next turn. Codex (top right) holds the chronicle and help.</li>'
@@ -1097,6 +1139,7 @@ function title() {
   $('char').addEventListener('click', () => openCreator($('overlay'), title));
   $('sanct').addEventListener('click', sanctum);
   $('codexB').addEventListener('click', codex);
+  $('fbB').addEventListener('click', openFeedback);
   bindCurses(title);
   showOpenGames();
   checkWebBuild();
