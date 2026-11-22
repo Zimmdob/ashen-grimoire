@@ -41,8 +41,6 @@ export const RULES = {
   FLOORS_PER_REGION: 2,
   MAX_OIL: 100,
   OIL_PER_TURN: 3,
-  START_SATIETY: 4,
-  MAX_SATIETY: 8,
   CORRUPTION_STEP: 25,
   HEAL_BETWEEN_LEVELS: 0.25,
   /** Walking speed in paces per millisecond (Spellmasons unit moveSpeed is 0.15). */

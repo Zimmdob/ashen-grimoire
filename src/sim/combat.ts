@@ -340,7 +340,6 @@ export function triggers(w: World, u: Unit) {
       case 'stam': u.stam += 100; float('+100 stamina', 0xe0c040); break;
       case 'scroll': w.pendingScrolls.push(ps.pid); break;
       case 'oil': ps.oil = Math.min(ps.maxOil, ps.oil + 35); float('+35 oil', 0xffd24a); break;
-      case 'food': eat(w, ps, u, 2); break;
       case 'herb': ps.mats.herb += ps.origin === 'hedgewitch' ? 2 : 1; float('+grave moss', 0x7fbf3f); break;
       case 'key': w.keys++; float(`key ${w.keys}/2`, 0xd9a845); log(w, w.keys >= 2 ? 'Both keys found. The vault can be opened.' : `${ps.name} finds a vault key.`); break;
       case 'vault':
@@ -364,15 +363,6 @@ export function triggers(w: World, u: Unit) {
     }
     sync(w, u);
   }
-}
-
-/** Eat: fill hunger, restore health lost to starving. */
-export function eat(w: World, ps: PlayerState, u: Unit, n: number) {
-  if (ps.origin === 'hedgewitch') n++;
-  if (hasTrait(ps, 'irongut')) n++;
-  ps.satiety = Math.min(RULES.MAX_SATIETY, ps.satiety + n);
-  if (ps.starveLoss > 0) { u.maxHp += ps.starveLoss; u.hp += ps.starveLoss; ps.starveLoss = 0; }
-  emit(w, { k: 'float', id: u.id, text: `+${n} hunger`, color: 0xe0a060 });
 }
 
 /** Start-of-turn upkeep: poison, burn, liquids, the Growing affix, Fortify and wetness wearing off. */

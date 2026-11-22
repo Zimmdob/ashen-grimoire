@@ -44,7 +44,6 @@ export function sydneyQuestions(w: World, ps: PlayerState, u: Unit): Question[] 
       answer: () => {
         const tips: string[] = []; // what matters right now comes first
         if (ps.oil < ps.maxOil * 0.4) tips.push('Your lantern is running low. Brew oil from tallow, or grab every flask you see. The Shades come when the light goes.');
-        if (ps.satiety <= 1) tips.push('You are hungry, I can tell. Cook something before you go. Starving spellwrights make sloppy sigils.');
         if (u.hp < u.maxHp * 0.5) tips.push('You are hurt. Rest by the fire tonight, please. For me.');
         if (ps.corruption >= 50) tips.push('That corruption is getting into your handwriting. Go easy on the blood magic for a while.');
         if (ps.cards.length < 6) tips.push('Your grimoire is thin. Take every new spell the portals offer you until it fills out.');

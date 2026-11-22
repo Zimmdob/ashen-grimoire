@@ -429,7 +429,6 @@ function glossNow(key: string): string {
   if (!ps || !u) return '';
   if (key === 'health' || key === 'ward') return `You: ${u.hp}/${u.maxHp} health${u.shield ? `, ${u.shield} ward` : ''}`;
   if (key === 'lantern' || key === 'fuel') return `You: ${Math.round(ps.oil)} of ${ps.maxOil} oil`;
-  if (key === 'fed' || key === 'starving') return `You: Fed ${ps.satiety} of 8`;
   if (key === 'corruption') return `You: ${ps.corruption} (next mutation at ${(Math.floor(ps.corruption / 25) + 1) * 25})`;
   if (key === 'chill') return `You: chilled ${ps.chill} of 3`;
   if (key in ps.mats) return `You carry ${ps.mats[key as keyof typeof ps.mats]}`;
@@ -630,15 +629,14 @@ function refreshHud() {
   $('manaTxt').textContent = label;
   $('stamFill').style.width = inf ? '100%' : `${Math.min(100, (100 * u.stam) / u.maxStam)}%`;
   $('stamTxt').textContent = inf ? 'Stamina: free to roam' : `Stamina ${Math.floor(u.stam)}/${u.maxStam}`;
-  // survival strip: lantern, hunger, cold, corruption, satchel
+  // survival strip: lantern, cold, corruption, satchel
   const oilPct = Math.round((100 * ps.oil) / Math.max(1, ps.maxOil));
-  const hunger = ps.satiety <= 0 ? '<b class="bad">Starving</b>' : ps.satiety <= 1 ? `<b class="warn">Hungry ${ps.satiety}</b>` : `Fed ${ps.satiety}`;
   const chill = ps.chill >= 3 ? '<b class="bad">Frozen through</b>' : ps.chill > 0 ? `<b class="warn">Chilled ${ps.chill}</b>` : '';
   const downed = downedNear();
   const g = (key: string, html: string, cls = '') => `<button type="button" class="g ${cls}${glossSeen.has(key) ? '' : ' new'}" data-g="${key}">${html}</button>`;
   const matChips = MAT_IDS.filter((m) => ps.mats[m] > 0).map((m) => g(m, `${MAT_NAMES[m]} <b>${ps.mats[m]}</b>`, 'mat')).join('');
   $('surv').innerHTML = `${g('lantern', `Lantern <b class="${oilPct < 25 ? 'bad' : oilPct < 50 ? 'warn' : ''}">${oilPct}%</b>`)}
-    ${g(ps.satiety <= 1 ? 'starving' : 'fed', hunger)}${chill ? g('chill', chill) : ''}
+    ${chill ? g('chill', chill) : ''}
     ${g('corruption', `Corruption <b class="${ps.corruption >= 75 ? 'bad' : ''}">${ps.corruption}</b>`)}
     ${ps.cls === 'cagebearer' ? g('cage', `Cage <b>${ps.cage.length}/${ps.maxCage}</b>${ps.cage.length ? `: ${ps.cage.map((t) => esc(UNITS[t].name)).join(', ')}` : ''}`) : ''}
     ${W.players.filter((p) => !p.left).length > 1 ? `${g('bond', `Bond <b class="${W.bond >= 100 ? 'warn' : ''}">${W.bond}</b>`)}${W.bond >= 100 && W.phase === 'planning' ? '<button type="button" class="btn small ember" id="duetBtn">Duet!</button>' : ''}` : ''}
@@ -736,7 +734,7 @@ function refreshInfoInner() {
   const n = R.ov.threats.size;
   info.innerHTML = `<p>${n ? `<span class="warn">${n} foe${n > 1 ? 's' : ''} outlined in red can strike you next turn${threatDmg ? ` for about ${threatDmg}` : ''}.</span>` : 'No foe can reach you next turn.'}</p>
     <ul><li>Hold right-click to walk toward the cursor. Walking spends stamina.</li><li>Click cards, or press 1–0, to forge a spell; click a target to cast it.</li>
-    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Not sure what Lantern, Fed or a material does? Hover or tap it. G opens the Field Guide.</li><li>Each card costs 25% more every time you cast it in the same turn. Costs reset at the start of every turn.</li>
+    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Not sure what Lantern, Corruption or a material does? Hover or tap it. G opens the Field Guide.</li><li>Each card costs 25% more every time you cast it in the same turn. Costs reset at the start of every turn.</li>
     <li>Shove foes into lava, traps, walls and each other. Urns burst when broken.</li><li>Gold coin: a bounty worth ${RULES.BOUNTY_POINTS} upgrade points. Diamonds: elite affixes.</li>
     <li>Click a bookmark slot to save a spell; F1–F4 recall it. Alt-click pings.</li><li>Hover a foe to see its reach. WASD pans, C recenters.</li>
     <li>Your lantern burns each turn. Oil flasks and braziers refill it; in the dark, Shades hunt you.</li><li>In co-op a fallen companion is only down: stand beside them and press R.</li></ul>`;
@@ -947,7 +945,7 @@ function phaseScreen(soft = false) {
     return;
   }
   if (W.phase === 'camp' && ps && u) {
-    const key = `C|${ps.event?.id}|${ps.event?.done}|${u.maxHp}|${u.maxStam}|${ps.bag.join()}|${Object.values(ps.gear).join()}|${JSON.stringify(ps.mats)}|${ps.oil}|${ps.satiety}|${u.hp}|${ps.rested}|${ps.routeVote}|${ps.ready}|${ps.cards.join()}|${JSON.stringify(ps.cardLevels)}|${ps.buffs.join()}|${ps.pendingMutations}|${ps.corruption}|${W.players.map((p) => `${p.ready}${p.routeVote}`).join()}`;
+    const key = `C|${ps.event?.id}|${ps.event?.done}|${u.maxHp}|${u.maxStam}|${ps.bag.join()}|${Object.values(ps.gear).join()}|${JSON.stringify(ps.mats)}|${ps.oil}|${u.hp}|${ps.rested}|${ps.routeVote}|${ps.ready}|${ps.cards.join()}|${JSON.stringify(ps.cardLevels)}|${ps.buffs.join()}|${ps.pendingMutations}|${ps.corruption}|${W.players.map((p) => `${p.ready}${p.routeVote}`).join()}`;
     if (soft && key === screenKey) return;
     screenKey = key;
     const mats = MAT_IDS.map((m) => `<span class="${ps.mats[m] ? '' : 'dim'}">${MAT_NAMES[m]} <b>${ps.mats[m]}</b></span>`).join('');
@@ -968,10 +966,10 @@ function phaseScreen(soft = false) {
     const ev = eventFor(ps);
     const sydney = ps.event?.id === 'sydney';
     const evHtml = ev ? `<div class="event ${sydney ? 'sydney' : ''}">${sydney ? `<img class="npc" alt="Sydney" src="${portrait(SYDNEY_LOOK as Look, 6)}">` : ''}<h3 class="sub">${esc(ev.name)}</h3>${sydney ? '<p class="say" id="sydSay"></p>' : `<p>${esc(ev.text)}</p>`}${sydney ? `<div class="talk"><span class="k">Ask her:</span> ${sydneyQuestions(W!, ps, u).map((q) => `<button type="button" class="btn small ${talk.asked.includes(q.id) ? 'asked' : ''}" data-ask="${q.id}">${esc(q.label)}</button>`).join('')}</div><p class="say talkline" id="sydTalk"></p>` : ''}${ps.event!.done ? (sydney ? '<p class="k say" id="sydRes"></p>' : `<p class="k">${esc(ps.event!.result ?? '')}</p>`) : `<div class="row">${ev.choices.map((c, i) => { const why = c.needs?.(ps, u); return `<button type="button" class="btn small" data-ev="${i}" ${why ? `disabled title="${esc(why)}"` : ''}>${esc(c.label)}</button>`; }).join('')}</div>`}</div>` : '';
-    showOverlay(`<div class="panel wide"><h2>Bonfire camp</h2><p>${esc(regionName(W))} lies behind you. Health ${u.hp}/${u.maxHp} · Lantern ${Math.round(ps.oil)}/${ps.maxOil} · Fed ${ps.satiety} · Corruption ${ps.corruption}${ps.buffs.length ? ` · Ready for the road: ${esc(ps.buffs.join(', '))}` : ''}</p>
+    showOverlay(`<div class="panel wide"><h2>Bonfire camp</h2><p>${esc(regionName(W))} lies behind you. Health ${u.hp}/${u.maxHp} · Lantern ${Math.round(ps.oil)}/${ps.maxOil} · Corruption ${ps.corruption}${ps.buffs.length ? ` · Ready for the road: ${esc(ps.buffs.join(', '))}` : ''}</p>
       ${evHtml}${mutationHtml(ps)}${gearHtml(ps)}
       <div class="mats">${mats}</div>
-      <h3 class="sub">Cook and craft</h3><div class="ups">${recipes}</div>
+      <h3 class="sub">Craft</h3><div class="ups">${recipes}</div>
       <h3 class="sub">Inscribe <small>Spell ink makes a card stronger (+50% power per mark), or teaches a new one.</small></h3>
       <div class="queue">${inscribe || '<span class="empty">Nothing left to inscribe.</span>'}<button type="button" class="btn small" id="learn" ${ink >= LEARN_COST ? '' : 'disabled'}>Learn a new spell <small>${LEARN_COST} ink</small></button></div>
       <div class="row"><button type="button" class="btn" id="rest" ${ps.rested || W.opts.curses?.includes('no_rest') ? 'disabled' : ''}>${ps.rested ? 'Rested' : 'Rest by the fire'}</button></div>

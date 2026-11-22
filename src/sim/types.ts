@@ -59,7 +59,7 @@ export interface Unit {
   lastTile: number;
 }
 
-export type PickupType = 'hp' | 'mana' | 'stam' | 'trap' | 'scroll' | 'oil' | 'food' | 'herb' | 'chest' | 'shrine' | 'brazier' | 'key' | 'vault';
+export type PickupType = 'hp' | 'mana' | 'stam' | 'trap' | 'scroll' | 'oil' | 'herb' | 'chest' | 'shrine' | 'brazier' | 'key' | 'vault';
 export interface Pickup { id: number; type: PickupType; x: number; y: number; used: boolean }
 export type WizardClass = 'spellwright' | 'soulbinder' | 'hexblade' | 'lanternkeeper' | 'tarot' | 'cagebearer';
 export type Mat = 'bone' | 'tallow' | 'ember' | 'rime' | 'ichor' | 'herb' | 'ink';
@@ -109,9 +109,6 @@ export interface PlayerState {
   // ---- survival
   oil: number;
   maxOil: number;
-  satiety: number;
-  /** Max health lost to hunger, restored by the next meal. */
-  starveLoss: number;
   chill: number;
   corruption: number;
   mutations: string[];

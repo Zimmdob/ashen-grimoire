@@ -38,14 +38,14 @@ export const BIOMES: Record<string, BiomeDef> = {
     name: 'The Witchwood', floors: ['Briar Paths', 'The Black Grove'], band: 1, music: 1,
     blurb: 'A black forest at the surface. Fog rolls in and lanterns gutter.', rule: 'Fog: lantern oil burns 50% faster. Trees choke the paths.',
     liquid: T_WATER, pools: [1, 2], ice: false, walls: 0.40, oilMul: 1.5, cold: false,
-    foes: ['wolf', 'wolf', 'hag', 'xbow', 'ghoul'], boss: 'mother', extraPickups: ['herb', 'herb', 'food'],
+    foes: ['wolf', 'wolf', 'hag', 'xbow', 'ghoul'], boss: 'mother', extraPickups: ['herb', 'herb', 'hp'],
     pal: { floor: ['#1b2116', '#1f2619', '#232a1c', '#192014'], top: '#1d2a1a', face: '#2c3a24', faceHi: '#3c4c30', mortar: '#101a0e', accent: '#5a7a3a', torch: 0xffb060 },
   },
   hollows: {
     name: 'The Fungal Hollows', floors: ['Spore Caverns', 'The Bloom Heart'], band: 1, music: 1,
     blurb: 'Glowing mushroom caverns. Food grows everywhere; light does not.', rule: 'Bog pools poison; mushrooms are food. Oil burns 30% faster.',
     liquid: T_BOG, pools: [2, 4], ice: false, walls: 0.42, oilMul: 1.3, cold: false,
-    foes: ['sporecaller', 'mycelid', 'ghoul', 'spitter'], boss: 'bloom', extraPickups: ['food', 'food', 'herb'],
+    foes: ['sporecaller', 'mycelid', 'ghoul', 'spitter'], boss: 'bloom', extraPickups: ['hp', 'hp', 'herb'],
     pal: { floor: ['#1e1a24', '#221d29', '#1a1720', '#251f2c'], top: '#2a2234', face: '#3a2e48', faceHi: '#4a3a5c', mortar: '#140f1a', accent: '#7ae0c0', torch: 0x9affd0 },
   },
   marsh: {
@@ -64,7 +64,7 @@ export const BIOMES: Record<string, BiomeDef> = {
   },
   forges: {
     name: 'The Ember Forges', floors: ['Slag Halls', 'The Great Anvil'], band: 2, music: 2,
-    blurb: 'Dwarven furnaces and rivers of lava.', rule: 'Lava everywhere. The heat makes you hungry faster.',
+    blurb: 'Dwarven furnaces and rivers of lava.', rule: 'Lava everywhere, and its glow saves lantern oil.',
     liquid: T_LAVA, pools: [4, 6], ice: false, walls: 0.42, oilMul: 0.8, cold: false,
     foes: ['slag', 'imp', 'ashling', 'ashling', 'xbow', 'spitter'], boss: 'anvil', extraPickups: ['oil', 'trap'],
     pal: { floor: ['#241a16', '#2a1e18', '#2e211a', '#201714'], top: '#30221c', face: '#45302a', faceHi: '#5a4034', mortar: '#160e0a', accent: '#ff7a2a', torch: 0xff7a2a },
@@ -80,7 +80,7 @@ export const BIOMES: Record<string, BiomeDef> = {
     name: 'The Frostbitten Ossuary', floors: ['Rime Crypts', 'The Frozen Court'], band: 3, music: 2,
     blurb: 'Ice crypts where old kings sleep.', rule: 'Ice floors: shoves slide twice as far. Cold saps your stamina away from fire.',
     liquid: T_WATER, pools: [1, 2], ice: true, walls: 0.42, oilMul: 1, cold: true,
-    foes: ['wight', 'hound', 'hound', 'wisp', 'xbow', 'priest'], boss: 'queen', extraPickups: ['oil', 'food'],
+    foes: ['wight', 'hound', 'hound', 'wisp', 'xbow', 'priest'], boss: 'queen', extraPickups: ['oil', 'hp'],
     pal: { floor: ['#1c2228', '#20272e', '#242c34', '#1a1f25'], top: '#28323e', face: '#3a4a5a', faceHi: '#56687a', mortar: '#10161c', accent: '#bff4ff', torch: 0x9fe8ff },
   },
   library: {
@@ -108,7 +108,7 @@ export const BIOMES: Record<string, BiomeDef> = {
     name: 'The Hollow Throne', floors: ['The Last Hall', 'The Last Hall'], band: 3, music: 3,
     blurb: 'The citadel of the Hollow King.', rule: 'Every danger at once.',
     liquid: T_LAVA, pools: [2, 4], ice: false, walls: 0.40, oilMul: 1.2, cold: false,
-    foes: ['ghoul', 'xbow', 'priest', 'spitter'], boss: 'king', extraPickups: ['oil', 'food'],
+    foes: ['ghoul', 'xbow', 'priest', 'spitter'], boss: 'king', extraPickups: ['oil', 'hp'],
     pal: { floor: ['#1c1416', '#201618', '#24191b', '#181113'], top: '#281a1e', face: '#3a262c', faceHi: '#4e343a', mortar: '#0e0809', accent: '#e0b040', torch: 0xffb040 },
   },
 };

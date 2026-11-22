@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { applyAction, createWorld } from '../src/sim/game';
 import type { Action, PlayerSetup, World, WorldOptions } from '../src/sim/types';
-import { cleanLook } from '../src/sim/character';
+import { cleanLook, TRAITS } from '../src/sim/character';
 import { dailySeed, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/net/protocol';
 
 // Authoritative lockstep relay. It runs the exact same simulation as the clients, validates every
@@ -31,7 +31,7 @@ function cleanSetup(pid: string, s: Partial<PlayerSetup> | undefined): PlayerSet
     name: String(s?.name || 'Spellwright').slice(0, 20),
     cls: s?.cls,
     origin: typeof s?.origin === 'string' ? s.origin : undefined,
-    traits: Array.isArray(s?.traits) ? s!.traits!.filter((t) => typeof t === 'string').slice(0, 8) : [],
+    traits: Array.isArray(s?.traits) ? s!.traits!.filter((t) => typeof t === 'string' && t in TRAITS).slice(0, 8) : [],
     look: cleanLook(s?.look),
   };
 }

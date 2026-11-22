@@ -64,7 +64,7 @@ function playthrough(seed: number, turns: number, opts: { god?: boolean; players
   for (let i = 0; i < turns && w.phase !== 'dead' && w.phase !== 'victory'; i++) {
     regions.add(w.run.region);
     for (const ps of w.players) {
-      if (opts.god) { const u = playerUnit(w, ps); u.maxHp = u.hp = 5000; u.mana = 99999; u.range = 600; ps.oil = 100; ps.satiety = 4; ps.uses = {}; if (!ps.cards.includes('sever')) ps.cards.push('sever'); }
+      if (opts.god) { const u = playerUnit(w, ps); u.maxHp = u.hp = 5000; u.mana = 99999; u.range = 600; ps.oil = 100; ps.uses = {}; if (!ps.cards.includes('sever')) ps.cards.push('sever'); }
       for (const a of botActions(w, dice, ps.pid, opts.god)) {
         applyAction(w, a);
         log.push(a);
@@ -404,7 +404,7 @@ describe('systems', () => {
     expect(500 - g.hp).toBe(20 + 30);
   });
 
-  it('survival: oil drains each turn, an empty lantern summons a Shade, hunger bites between floors', () => {
+  it('survival: oil drains each turn, an empty lantern summons a Shade', () => {
     const { w, ps } = fresh();
     const g = dummy(w, 5, 5);
     g.x = playerUnit(w, ps).x + 600;

@@ -16,7 +16,7 @@ export const CLASSES: Record<WizardClass, ClassDef> = {
 export interface OriginDef { name: string; card: string; desc: string }
 export const ORIGINS: Record<string, OriginDef> = {
   knight: { name: 'Exiled Knight', card: 'repel', desc: '+20 max health.' },
-  hedgewitch: { name: 'Hedge Witch', card: 'mend', desc: 'Every meal she eats or cooks fills one more hunger. Finds extra herbs.' },
+  hedgewitch: { name: 'Hedge Witch', card: 'mend', desc: 'Her Healing Salves heal 60 instead of 40. Finds extra herbs.' },
   gravedigger: { name: 'Gravedigger', card: 'raise', desc: 'Every kill yields an extra bone.' },
   plague: { name: 'Plague Doctor', card: 'cleanse', desc: 'Immune to poison.' },
   ember: { name: 'Ember Monk', card: 'burn', desc: 'Never grows cold; lava burns him for half.' },
@@ -30,13 +30,11 @@ export interface TraitDef { name: string; cost: number; desc: string }
 export const TRAITS: Record<string, TraitDef> = {
   nighteye: { name: 'Night-eyed', cost: 2, desc: 'Your light reaches 50% further.' },
   sleeper: { name: 'Light Sleeper', cost: 1, desc: 'Resting at camp heals 50% instead of 35%.' },
-  forager: { name: 'Forager', cost: 1, desc: 'One extra ration on every floor.' },
-  irongut: { name: 'Iron Gut', cost: 1, desc: 'Every meal fills one more hunger.' },
+  forager: { name: 'Forager', cost: 1, desc: 'One extra red potion on every floor.' },
   lucky: { name: 'Lucky', cost: 2, desc: 'Four spells offered at each portal instead of three.' },
   tough: { name: 'Tough', cost: 2, desc: '+15 max health.' },
   swift: { name: 'Swift', cost: 1, desc: '+30 stamina.' },
   brittle: { name: 'Brittle Bones', cost: -2, desc: '−15 max health.' },
-  glutton: { name: 'Gluttonous', cost: -1, desc: 'Hunger falls twice as fast.' },
   haunted: { name: 'Haunted', cost: -3, desc: 'From depth 5 a Shade follows you onto every floor.' },
   clumsy: { name: 'Clumsy', cost: -2, desc: '1 in 10 spells fumbles its first card.' },
   marked: { name: 'Marked', cost: -2, desc: 'Foes would rather strike you than anyone else.' },
@@ -78,8 +76,6 @@ export const DROPS: Record<string, Partial<Record<Mat, number>>> = {
 
 export interface Recipe { name: string; cost: Partial<Record<Mat, number>>; desc: string; kind: 'cook' | 'craft' }
 export const RECIPES: Record<string, Recipe> = {
-  stew: { name: 'Smoked Rat Stew', kind: 'cook', cost: { herb: 1, tallow: 1 }, desc: 'Fills 3 hunger and grants +30 stamina next floor.' },
-  broth: { name: 'Grave Moss Broth', kind: 'cook', cost: { herb: 2 }, desc: 'Fills 2 hunger and heals 20.' },
   oil: { name: 'Lantern Oil', kind: 'craft', cost: { tallow: 2 }, desc: 'Refills 50 lantern oil.' },
   salve: { name: 'Healing Salve', kind: 'craft', cost: { herb: 2, ichor: 1 }, desc: 'Heals 40 now.' },
   charm: { name: 'Bone Charm', kind: 'craft', cost: { bone: 3 }, desc: 'Start the next floor with a 30 ward.' },

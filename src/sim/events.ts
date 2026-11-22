@@ -78,10 +78,10 @@ const mats = (k: keyof PlayerState['mats'], n: number) => (ps: PlayerState) => (
 export const EVENTS: Record<string, EventDef> = {
   pilgrim: {
     name: 'The Blind Pilgrim',
-    text: 'A blind pilgrim sits at your fire and asks for something to eat.',
+    text: 'A blind pilgrim sits at your fire and asks for a little light to walk by.',
     choices: [
-      { label: 'Share a meal (−1 fed)', needs: (ps) => (ps.satiety > 0 ? null : 'you have nothing to share'),
-        run: (w, ps) => { ps.satiety--; const r = grantRune(w, ps); return r ? 'He blesses you with a rune before he goes.' : 'He thanks you and walks into the dark.'; } },
+      { label: 'Share your oil (−20 lantern oil)', needs: (ps) => (ps.oil >= 20 ? null : 'your lantern is nearly dry'),
+        run: (w, ps) => { ps.oil -= 20; const r = grantRune(w, ps); return r ? 'He blesses you with a rune before he goes.' : 'He thanks you and walks into the dark.'; } },
       { label: 'Rob him (+2 moss, +1 tallow, +10 corruption)', run: (w, ps) => { ps.mats.herb += 2; ps.mats.tallow += 1; corrupt(w, ps, 10); return 'He does not resist. You feel worse for it.'; } },
       { label: 'Send him away', run: () => 'He shuffles off without a word.' },
     ],
@@ -167,8 +167,8 @@ export const EVENTS: Record<string, EventDef> = {
       { label: 'Throw (+60 upgrade points, or −20 max health)', run: (w, ps, u) => {
         if (rand(w) < 0.5) { ps.bountyPoints += 60; return 'Sixes. 60 upgrade points at the next portal.'; }
         const loss = Math.min(20, u.maxHp - 10);
-        u.maxHp -= loss; ps.starveLoss += loss; u.hp = Math.min(u.hp, u.maxHp);
-        return 'Snake eyes. −20 max health until your next meal.';
+        u.maxHp -= loss; u.hp = Math.min(u.hp, u.maxHp);
+        return 'Snake eyes. −20 max health.';
       } },
       { label: 'Refuse', run: () => 'It sulks back into the shadows.' },
     ],

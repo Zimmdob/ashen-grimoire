@@ -1,6 +1,6 @@
 import type { Action, ActionResult, PlayerSetup, PlayerState, Pt, Unit, WizardClass, World, WorldOptions } from './types';
 import { isLiquid, isWalkable, RULES, STARTING_CARDS, TILE, T_FLOOR } from './constants';
-import { corrupt, curse, dist, eat, emit, hasGear, hasMut, hasTrait, heal, log, startTick, sync } from './combat';
+import { corrupt, curse, dist, emit, hasGear, hasMut, hasTrait, heal, log, startTick, sync } from './combat';
 import { AFFIX_IDS, RUNE_IDS, RUNES } from './runes';
 import { floorTiles, generateMap, placeTorches, tileAt } from './map';
 import { findPath } from './path';
@@ -67,7 +67,7 @@ function makePlayer(w: World, p: PlayerSetup): PlayerState {
     pid: p.pid, name: String(p.name || 'Spellwright').slice(0, 20), unitId: u.id, cards: [...STARTING_CARDS], uses: {},
     endedTurn: false, offer: [], picked: false, points: 0, ready: false, cls, runes: [], runeOffer: [], bountyPoints: 0,
     origin, traits, look: cleanLook(p.look), cardLevels: {},
-    oil: RULES.MAX_OIL, maxOil: RULES.MAX_OIL, satiety: RULES.START_SATIETY, starveLoss: 0, chill: 0, corruption: 0,
+    oil: RULES.MAX_OIL, maxOil: RULES.MAX_OIL, chill: 0, corruption: 0,
     mutations: [], mutationOffer: [], pendingMutations: 0, mats: emptyMats(), buffs: [], routeVote: -1, rested: false,
     hand: [], cage: [], maxCage: 0, gear: emptyGear(), bag: [], event: null, placed: true,
   };
@@ -181,15 +181,15 @@ export function startFloor(w: World) {
   }
   // supplies: survival pickups, biome extras, traps, braziers and a chance of a chest
   const party = w.players.filter((p) => !p.left).length;
-  const pk: Array<World['pickups'][number]['type']> = ['hp', 'mana', 'stam', 'oil', 'food', 'brazier', 'brazier', ...b.extraPickups];
-  if (party > 1) pk.push('oil', 'food');
+  const pk: Array<World['pickups'][number]['type']> = ['hp', 'mana', 'stam', 'oil', 'brazier', 'brazier', ...b.extraPickups];
+  if (party > 1) pk.push('oil', 'hp');
   if (w.level > 3) pk.push('hp');
   if (w.level >= 2) pk.push('scroll');
   if (rand(w) < 0.5) pk.push('chest');
   // a sealed vault and its two keys, placed far apart: split up to find them
   w.keys = 0;
   if (w.level >= 2 && !lastFloor(w) && rand(w) < (party > 1 ? 0.5 : 0.3)) pk.push('vault', 'key', 'key');
-  for (const ps of w.players) { if (hasTrait(ps, 'forager')) pk.push('food'); if (ps.origin === 'cartographer') pk.push('oil'); if (ps.origin === 'hedgewitch') pk.push('herb'); }
+  for (const ps of w.players) { if (hasTrait(ps, 'forager')) pk.push('hp'); if (ps.origin === 'cartographer') pk.push('oil'); if (ps.origin === 'hedgewitch') pk.push('herb'); }
   for (let i = 0; i < 2 + Math.floor(w.level / 3); i++) pk.push('trap');
   for (const type of pk) {
     const p = takeFrom(type === 'chest' || type === 'vault' || type === 'key' ? (far.length ? far : mid) : near, 8);
@@ -211,18 +211,8 @@ export function startFloor(w: World) {
 
 function spawnShadeQuiet(w: World, u: Unit) { const before = w.events.length; spawnShade(w, u); w.events.length = before; }
 
-/** Hunger, buffs and mutations that apply as a new floor begins. */
+/** Buffs and mutations that apply as a new floor begins. */
 function floorUpkeep(w: World, ps: PlayerState, u: Unit) {
-  ps.satiety -= hasTrait(ps, 'glutton') ? 2 : 1;
-  if (w.run.region === 'forges') ps.satiety -= 1;
-  if (ps.satiety < 0) {
-    ps.satiety = 0;
-    const loss = Math.max(1, Math.round(u.maxHp * 0.1));
-    u.maxHp -= loss;
-    ps.starveLoss += loss;
-    u.hp = Math.min(u.hp, u.maxHp);
-    log(w, `${ps.name} is starving: −${loss} max health until they eat.`);
-  }
   const keep: string[] = [];
   for (const b of ps.buffs) {
     if (b === 'ward') u.shield += 30;
@@ -655,10 +645,8 @@ export function applyAction(w: World, a: Action): ActionResult {
       for (const [m, n] of Object.entries(r.cost)) if ((ps.mats[m as keyof typeof ps.mats] ?? 0) < (n ?? 0)) return fail('Not enough materials');
       for (const [m, n] of Object.entries(r.cost)) ps.mats[m as keyof typeof ps.mats] -= n ?? 0;
       switch (a.recipe) {
-        case 'stew': eat(w, ps, u, 3); ps.buffs.push('stam'); break;
-        case 'broth': eat(w, ps, u, 2); heal(w, u, 20); break;
         case 'oil': ps.oil = Math.min(ps.maxOil, ps.oil + 50); break;
-        case 'salve': heal(w, u, 40); break;
+        case 'salve': heal(w, u, ps.origin === 'hedgewitch' ? 60 : 40); break;
         case 'charm': ps.buffs.push('ward'); break;
         case 'cloak': ps.buffs.push('warm:2'); break;
         case 'antidote': u.poison = 0; u.frail = 0; u.weak = 0; ps.corruption = Math.max(0, ps.corruption - 10); break;
