@@ -132,7 +132,13 @@ export class GameRenderer {
     if (nw === BW && nh === BH) return;
     BW = nw; BH = nh;
     this.app.renderer.resize(BW, BH);
-    this.lightRT.resize(BW, BH);
+    // A fresh light texture at the new size: resizing one in place keeps its old projection,
+    // which leaves the torchlight and the darkness out of line with the map when zooming.
+    const oldRT = this.lightRT;
+    this.lightRT = RenderTexture.create({ width: BW, height: BH });
+    this.lightSprite.texture = this.lightRT;
+    this.lightSprite.setSize(BW, BH);
+    oldRT.destroy(true);
     this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
     const old = this.grain.texture;
     this.grain.texture = Texture.from(drawGrain(BW, BH));
