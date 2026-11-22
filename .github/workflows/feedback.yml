@@ -1,6 +1,8 @@
-# Every 15 minutes, turn players' in-game feedback into issues on this project.
+# Every 15 minutes (and on every push), turn players' in-game feedback into issues on this project.
 name: Collect player feedback
 on:
+  push:
+    branches: [main]
   schedule:
     - cron: '*/15 * * * *'
   workflow_dispatch:
