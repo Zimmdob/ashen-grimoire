@@ -75,14 +75,6 @@ tests/        Vitest suite
 - **Lockstep co-op.** Clients send *actions*, never positions. The server validates each one against its own copy of the sim and broadcasts only accepted actions; every client replays them locally. 2–4 players: everyone ends their turn, then the dark moves.
 - **Physics.** This uses a small purpose-built fixed-step circle solver rather than Matter.js or Rapier, because general-purpose engines aren't guaranteed bit-identical across machines, and lockstep needs that.
 
-## Where the rules came from
-
-Spellmasons' own source is published on GitHub (`jdoleary/Spellmasons`) for study and personal modding. Its license asks that anyone wanting to use part of it in a separate project contact the author first. This project uses **none** of that code, art or text. If you plan to sell or publicly release this game, read that license and consider reaching out to the author.
-
-The systems here (rune shop, Goru-style soul class, waves, bounties, elite modifiers, summon cards, bookmarks, pings) were inferred from the *structure* of Spellmasons save data: field names, rule constants and card lists. The numbers come from the save's `rules` block where it had them (e.g. RUNES_PER_LEVEL 6, GORU soul collect radius 100, 2 starting souls, 10 max). Everything else is our own design.
-
-
-The player and foe numbers that line up with Spellmasons come from the `rules` block and unit records in a local Spellmasons save file. Player: 60 health, 60 mana restored per turn, 200 stamina, 200 cast range, 3 starting spells, 120 upgrade points per level. Foes: Golem → Ghoul (20 hp, hits for 30 at 74 range, 300 stamina), Archer → Crossbowman (40 hp, 10 damage, 500 range). The other foes keep the same behaviour families (lobber, poisoner, priest that raises the dead, summoner, mana vampire, puller, urns) with our own numbers. No Spellmasons code or assets are included; the game's code ships packed inside its executable and wasn't used.
 
 ## Extending
 
