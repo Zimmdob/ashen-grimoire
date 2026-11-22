@@ -12,7 +12,7 @@ function startServer() {
   process.env.PORT = String(PORT);
   process.env.AG_EMBEDDED = '1';
   process.env.AG_DIST = app.isPackaged ? path.join(__dirname, '..', 'dist') : path.join(__dirname, '..', 'dist');
-  process.env.AG_LINKFILE = path.join(app.getPath('userData'), 'LINK FOR IAN.txt');
+  process.env.AG_LINKFILE = path.join(app.getPath('userData'), 'Friend link.txt');
   const cf = res(app.isPackaged ? 'cloudflared.exe' : path.join('build', 'cloudflared.exe'));
   if (fs.existsSync(cf)) { process.env.CLOUDFLARED = cf; process.env.TUNNEL = '1'; }
   try { require('./server.cjs'); } catch (e) { console.error('Server failed to start:', e); }

@@ -164,8 +164,8 @@ if (process.env.TUNNEL === '1') {
     shown = true;
     tunnelUrl = m[0];
     const bar = '='.repeat(64);
-    console.log(`\n${bar}\n  SEND IAN THIS LINK (works from anywhere):\n\n    ${m[0]}\n\n  It changes each time you start the server.\n${bar}\n`);
-    try { writeFileSync(process.env.AG_LINKFILE || resolve(process.cwd(), '..', 'LINK FOR IAN.txt'), `${m[0]}\r\n`); } catch { /* not fatal */ }
+    console.log(`\n${bar}\n  SEND YOUR FRIENDS THIS LINK (works from anywhere):\n\n    ${m[0]}\n\n  It changes each time you start the server.\n${bar}\n`);
+    try { writeFileSync(process.env.AG_LINKFILE || resolve(process.cwd(), '..', 'Friend link.txt'), `${m[0]}\r\n`); } catch { /* not fatal */ }
   };
   cf.stdout.on('data', scan);
   cf.stderr.on('data', scan);
