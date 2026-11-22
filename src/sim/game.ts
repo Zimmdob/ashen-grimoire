@@ -511,7 +511,7 @@ export function applyAction(w: World, a: Action): ActionResult {
       const path = findPath(w, u, { x: a.x, y: a.y }, { lavaCost: 30 });
       if (!path || !path.length) return fail('No path');
       const cap = typeof a.max === 'number' && Number.isFinite(a.max) ? Math.max(1, Math.min(a.max, 400)) : Infinity;
-      const plan = planWalk(w, u, path, Math.min(u.stam, cap));
+      const plan = planWalk(w, u, path, Math.min(u.stam, cap), undefined, u.stam);
       if (plan.used <= 0) return fail('Blocked');
       if (u.stam < RULES.CLEARED_STAMINA) u.stam = Math.max(0, u.stam - plan.used);
       w.beat++;
@@ -545,7 +545,7 @@ export function applyAction(w: World, a: Action): ActionResult {
       if (a.cards.some((c) => CARDS[c].tags?.includes('fire'))) ps.chill = 0;
       w.beat++;
       sync(w, u);
-      executeSpell(w, u, a.cards, { x: a.x, y: a.y });
+      executeSpell(w, u, a.cards, { x: a.x, y: a.y, exact: a.exact === true });
       w.beat++;
       settle(w);
       return { ok: true };
@@ -806,7 +806,7 @@ export function fromHand(hand: string[], cards: string[]): boolean {
   return true;
 }
 
-export function previewCast(w: World, pid: string, cards: string[], aim: Pt): CastPreview | null {
+export function previewCast(w: World, pid: string, cards: string[], aim: Pt & { exact?: boolean }): CastPreview | null {
   const ps = playerState(w, pid);
   if (!ps || !cards.length) return null;
   const s: World = structuredClone({ ...w, events: [] });

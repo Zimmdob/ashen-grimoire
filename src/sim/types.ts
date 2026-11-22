@@ -200,7 +200,7 @@ export interface World {
 
 export type Action =
   | { t: 'move'; pid: string; x: number; y: number; max?: number }
-  | { t: 'cast'; pid: string; cards: string[]; x: number; y: number }
+  | { t: 'cast'; pid: string; cards: string[]; x: number; y: number; /** Place it exactly here: don't lock onto a body near the point. */ exact?: boolean }
   | { t: 'endTurn'; pid: string }
   | { t: 'pick'; pid: string; card: string | null }
   | { t: 'upgrade'; pid: string; stat: Stat }

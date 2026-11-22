@@ -144,13 +144,14 @@ function toBuffer(e: PointerEvent): Pt {
   const r = canvas.getBoundingClientRect();
   return { x: ((e.clientX - r.left) / r.width) * BW, y: ((e.clientY - r.top) / r.height) * BH };
 }
-function unitAt(p: Pt): Unit | null {
+/** The body at a point. `tight` counts only a pointer that is really on the body (for aiming with a mouse). */
+function unitAt(p: Pt, tight = false): Unit | null {
   if (!W) return null;
   let best: Unit | null = null, bd = Infinity;
   for (const u of W.units) {
     if (u.gone) continue;
     const d = Math.hypot(u.x - p.x, u.y - (p.y + 6));
-    const lim = (u.alive ? u.r + 12 : 16) * (UNITS[u.type].boss ? 2 : 1);
+    const lim = tight ? (u.alive ? u.r + 3 : 10) * (UNITS[u.type].boss ? 1.4 : 1) : (u.alive ? u.r + 12 : 16) * (UNITS[u.type].boss ? 2 : 1);
     if (d < lim && d < bd && (u.alive || !best)) { best = u; bd = d; }
   }
   return best;
@@ -186,7 +187,7 @@ function walkTick(dt: number) {
 const coarse = matchMedia('(pointer: coarse)').matches;
 document.body.classList.toggle('touch', coarse);
 let touchMode: 'walk' | 'look' = 'walk';
-let aimPt: Pt | null = null;
+let aimPt: Aim | null = null;
 let pinnedId: number | null = null;
 const fingers = new Map<number, { x: number; y: number; sx: number; sy: number; t0: number }>();
 let holdTimer = 0;
@@ -203,22 +204,32 @@ function placeAt(p: Pt) {
   R.camOff = { x: 0, y: 0 };
 }
 
-function castAt(aim: Pt) {
+function castAt(aim: Aim) {
   if (!W || !T) return;
   if (!canAct()) { if (!R.busy && me()?.endedTurn) toast('Waiting for your companions'); return; }
   const ps = me()!;
   const pv = previewCast(W, ps.pid, spell, aim);
-  const k = `${spell.join()}|${Math.round(aim.x)}|${Math.round(aim.y)}`;
+  const k = `${spell.join()}|${Math.round(aim.x)}|${Math.round(aim.y)}|${aim.exact}`;
   if (pv?.selfDies && confirmKill !== k) { confirmKill = k; toast(coarse ? 'This spell would kill you. Press Cast again to do it anyway.' : 'This spell would kill you. Click again to cast anyway.'); return; }
   confirmKill = '';
-  send({ t: 'cast', pid: ps.pid, cards: [...spell], x: aim.x, y: aim.y });
+  send({ t: 'cast', pid: ps.pid, cards: [...spell], x: aim.x, y: aim.y, exact: aim.exact });
   navigator.vibrate?.(15);
   spell = [];
   aimPt = null;
   R.camOff = { x: 0, y: 0 };
   dirty = true;
 }
-const aimOf = (p: Pt): Pt => { const t = unitAt(p); return t ? { x: t.x, y: t.y } : p; };
+/**
+ * Where a spell aimed at p goes. With a mouse it locks onto a body only when the pointer is on that body;
+ * anywhere else it lands exactly where you point. Touch keeps a wider lock for fingers.
+ * Holding Shift always places it exactly, even on top of someone.
+ */
+type Aim = Pt & { exact: boolean };
+const aimOf = (p: Pt): Aim => {
+  if (keys.has('shift')) return { x: p.x, y: p.y, exact: true };
+  const t = unitAt(p, !coarse);
+  return t ? { x: t.x, y: t.y, exact: false } : { x: p.x, y: p.y, exact: true };
+};
 
 canvas.addEventListener('pointermove', (e) => {
   const b = toBuffer(e);
@@ -333,6 +344,7 @@ window.addEventListener('keydown', (e) => {
   if (['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)) return;
   const k = e.key.toLowerCase();
   keys.add(k);
+  if (k === 'shift') dirty = true;
   if (k === 'f' && !e.repeat && !e.ctrlKey && !e.metaKey) { toggleFullscreen(); return; }
   if ($('guide').classList.contains('on')) { if (k === 'escape' || k === 'g') closeGuide(); return; }
   if (k === 'g' && !e.repeat) { openGuide(); return; }
@@ -352,7 +364,8 @@ window.addEventListener('keydown', (e) => {
   else if (/^f[1-4]$/.test(k)) { e.preventDefault(); loadMark(Number(k[1]) - 1); }
   else if (/^[0-9]$/.test(k)) { const i = k === '0' ? 9 : Number(k) - 1; const id = ps.cards[i]; if (id) addCard(id); }
 });
-window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+window.addEventListener('keyup', (e) => { keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') dirty = true; });
+window.addEventListener('blur', () => keys.clear());
 
 // ---------------------------------------------------------------- zoom and fullscreen
 /** Zoom by a factor around a point on screen (client coords), or the middle of the map. */
@@ -841,9 +854,8 @@ function updateOverlays() {
     const trial = hoverCard && !coarse && CARDS[hoverCard] && (ps.cls !== 'tarot' || ps.cards.includes(hoverCard)) ? [...spell, hoverCard] : spell;
     if (trial.length) {
       o.castRing = { x: u.x, y: u.y, r: u.range };
-      const tgt = unitAt(mouse);
-      const aim = tgt ? { x: tgt.x, y: tgt.y } : mouse;
-      const key = `${trial.join()}|${Math.round(aim.x / 4)}|${Math.round(aim.y / 4)}|${W.beat}`;
+      const aim = coarse && aimPt ? aimPt : aimOf(mouse);
+      const key = `${trial.join()}|${Math.round(aim.x / 4)}|${Math.round(aim.y / 4)}|${aim.exact}|${W.beat}`;
       if (key !== lastPreviewKey) { cachedPv = previewCast(W, ps.pid, trial, aim); lastPreviewKey = key; }
       const pv = cachedPv;
       if (pv) {

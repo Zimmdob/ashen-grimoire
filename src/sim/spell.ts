@@ -4,8 +4,9 @@ import { dist, emit, hasMut, ownerState } from './combat';
 import { RULES } from './constants';
 import { rand } from './rng';
 
-/** The first target is the body under the cursor, then a corpse, otherwise the bare ground. */
-export function pickInitialTarget(w: World, aim: Pt): Target {
+/** The first target is the body under the cursor, then a corpse, otherwise the bare ground (always the ground when aimed exactly). */
+export function pickInitialTarget(w: World, aim: Pt & { exact?: boolean }): Target {
+  if (aim.exact) return { x: aim.x, y: aim.y, pt: true };
   let best: Unit | null = null;
   let bd = Infinity;
   for (const u of w.units) {
@@ -26,7 +27,7 @@ export function pickInitialTarget(w: World, aim: Pt): Target {
  * Run a forged spell. Cards resolve strictly left to right.
  * Modifier cards (Echo, Overcharge) change the card after them. Returns the final target list.
  */
-export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt, zones?: Zone[]): Target[] {
+export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt & { exact?: boolean }, zones?: Zone[]): Target[] {
   const ctx: SpellCtx = { w, caster, aim, targets: [pickInitialTarget(w, aim)], stack: {}, pw: 1, zones };
   const ps = ownerState(w, caster);
   emit(w, { k: 'sfx', s: 'cast' });

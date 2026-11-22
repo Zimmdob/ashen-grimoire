@@ -488,3 +488,47 @@ describe('systems', () => {
     expect(playerUnit(w, ps).stam).toBe(RULES.CLEARED_STAMINA);
   });
 });
+
+describe('aiming near a body', () => {
+  it('locks onto the body unless aimed exactly', async () => {
+    const { pickInitialTarget } = await import('../src/sim/spell');
+    const w = createWorld(5, [{ pid: 'p1', name: 'A', cls: 'spellwright' as never }]);
+    const foe = w.units.find((u) => u.alive && u.faction === 'enemy')!;
+    const near = { x: foe.x + foe.r + 6, y: foe.y };
+    expect(pickInitialTarget(w, near)).toBe(foe);
+    const t = pickInitialTarget(w, { ...near, exact: true }) as { x: number; y: number; pt?: boolean };
+    expect(t.pt).toBe(true);
+    expect(t.x).toBe(near.x);
+  });
+});
+
+describe('walking through friends', () => {
+  it('steps through an ally in small held-walk steps and never stops inside them', async () => {
+    const { freeAt } = await import('../src/sim/physics');
+    const { isWallAt } = await import('../src/sim/map');
+    const w = createWorld(9, [{ pid: 'p1', name: 'A', cls: 'spellwright' as never }, { pid: 'p2', name: 'B', cls: 'spellwright' as never }]);
+    w.phase = 'planning';
+    const a = playerUnit(w, w.players[0])!, b = playerUnit(w, w.players[1])!;
+    // clear the area of everything but the two wizards, then find an open east-west stretch
+    for (const u of w.units) if (u !== a && u !== b) u.gone = true;
+    let spot: { x: number; y: number } | null = null;
+    for (let y = 40; y < w.MH * 32 - 40 && !spot; y += 8)
+      for (let x = 40; x < w.MW * 32 - 200 && !spot; x += 8) {
+        let ok = true;
+        for (let dx = -20; dx <= 180 && ok; dx += 4) if (isWallAt(w, x + dx, y) || isWallAt(w, x + dx, y - 14) || isWallAt(w, x + dx, y + 14)) ok = false;
+        if (ok) spot = { x, y };
+      }
+    expect(spot).not.toBeNull();
+    a.x = spot!.x; a.y = spot!.y;
+    b.x = spot!.x + 40; b.y = spot!.y;
+    a.stam = b.stam = 300;
+    const goal = { x: spot!.x + 150, y: spot!.y };
+    for (let i = 0; i < 40 && a.x < goal.x - 8 && w.phase === 'planning'; i++) {
+      const r = applyAction(w, { t: 'move', pid: 'p1', x: goal.x, y: goal.y, max: 6 });
+      expect(r.ok).toBe(true);
+      expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeGreaterThanOrEqual(a.r + b.r - 6);
+    }
+    expect(a.x).toBeGreaterThan(b.x + 10);
+    expect(freeAt(w, a.x, a.y, a.r, a)).toBe(true);
+  });
+});

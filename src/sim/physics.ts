@@ -9,12 +9,14 @@ import { UNITS } from './units';
 
 const STEP = 4;
 
-export function freeAt(w: World, x: number, y: number, r: number, self: Unit | null, ignoreUnits = false): boolean {
+/** True if a body of radius r fits at (x,y). `passFaction`: bodies of that side (not props) don't count. */
+export function freeAt(w: World, x: number, y: number, r: number, self: Unit | null, ignoreUnits = false, passFaction?: string): boolean {
   const k = r * 0.7;
   if (isWallAt(w, x, y) || isWallAt(w, x + k, y) || isWallAt(w, x - k, y) || isWallAt(w, x, y + k) || isWallAt(w, x, y - k)) return false;
   if (ignoreUnits) return true;
   for (const v of w.units) {
     if (v === self || !v.alive || v.gone) continue;
+    if (passFaction && v.faction === passFaction && !UNITS[v.type].prop) continue;
     if (Math.hypot(v.x - x, v.y - y) < r + v.r - 6) return false;
   }
   return true;
@@ -35,13 +37,21 @@ export function findFreeNear(w: World, x: number, y: number, r: number, self: Un
 
 export interface WalkPlan { x: number; y: number; used: number; trail: Pt[] }
 
-/** Walk along waypoints until stamina runs out or `stop` is satisfied. Pure: does not move the unit. */
-export function planWalk(w: World, u: Unit, pts: Pt[], max: number, stop?: (p: Pt) => boolean): WalkPlan {
+/**
+ * Walk along waypoints until stamina runs out or `stop` is satisfied. Pure: does not move the unit.
+ * The party walks through each other: if the walk would end inside an ally, it carries on along the
+ * path to the first clear spot past them (up to `reach` paces in all), so nobody ever blocks a friend
+ * and nobody ends up standing inside one.
+ */
+export function planWalk(w: World, u: Unit, pts: Pt[], max: number, stop?: (p: Pt) => boolean, reach = max): WalkPlan {
   let x = u.x, y = u.y, used = 0;
   const trail: Pt[] = [];
   let fx = x, fy = y, fused = 0, fcount = 0;
   if (stop && stop({ x, y })) return { x, y, used: 0, trail: [] };
-  outer: for (const p of pts) {
+  const ally = u.faction === 'player' ? 'player' : undefined;
+  let pi = 0;
+  outer: for (; pi < pts.length; pi++) {
+    const p = pts[pi];
     for (;;) {
       const dx = p.x - x, dy = p.y - y, d = Math.hypot(dx, dy);
       if (d < 0.01) break;
@@ -55,6 +65,24 @@ export function planWalk(w: World, u: Unit, pts: Pt[], max: number, stop?: (p: P
       if (free) { fx = x; fy = y; fused = used; fcount = trail.length; }
       if (free && stop && stop({ x, y })) break outer;
       if (used >= max) break outer;
+    }
+  }
+  // Ended inside a friend? Keep going through them to the far side.
+  if (ally && fcount < trail.length && freeAt(w, x, y, u.r, u, false, ally)) {
+    ext: for (; pi < pts.length; pi++) {
+      const p = pts[pi];
+      for (;;) {
+        const dx = p.x - x, dy = p.y - y, d = Math.hypot(dx, dy);
+        if (d < 0.01) break;
+        const s = Math.min(STEP, d, reach - used);
+        if (s <= 0) break ext;
+        x += (dx / d) * s;
+        y += (dy / d) * s;
+        used += s;
+        trail.push({ x, y });
+        if (freeAt(w, x, y, u.r, u)) { fx = x; fy = y; fused = used; fcount = trail.length; break ext; }
+        if (!freeAt(w, x, y, u.r, u, false, ally)) break ext; // something other than a friend is in the way
+      }
     }
   }
   return { x: fx, y: fy, used: fused, trail: trail.slice(0, fcount) };
