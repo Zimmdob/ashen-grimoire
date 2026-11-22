@@ -1154,10 +1154,10 @@ function showFriendLink(el: HTMLElement | null) {
 
 // ---------------------------------------------------------------- versions and the game board
 interface AppBridge {
-  state: () => Promise<{ status: string; progress: number }>;
+  state: () => Promise<{ status: string; progress: number; error?: string }>;
   checkNow: () => Promise<{ status: string; progress: number }>;
   restartToUpdate: () => Promise<void>;
-  onUpdate: (fn: (s: { status: string; progress: number }) => void) => void;
+  onUpdate: (fn: (s: { status: string; progress: number; error?: string }) => void) => void;
 }
 /** Present in the desktop app (see electron/preload.cjs); absent in a browser. */
 const agApp = (window as unknown as { agApp?: AppBridge }).agApp;
@@ -1239,20 +1239,22 @@ setInterval(() => checkWebBuild(), 5 * 60 * 1000);
 const updBar = document.createElement('div');
 updBar.id = 'updBar';
 document.body.appendChild(updBar);
-let updState = { status: 'idle', progress: 0 };
+let updState: { status: string; progress: number; error?: string } = { status: 'idle', progress: 0 };
 function paintUpdate() {
   const inRun = !!W && W.phase !== 'dead' && W.phase !== 'victory';
   const s = updState;
-  const show = !inRun && (s.status === 'ready' || s.status === 'downloading');
+  const failed = s.error && /did not install/.test(s.error) ? `<span class="warn">${esc(s.error)}</span> ` : '';
+  const show = !inRun && (s.status === 'ready' || s.status === 'downloading' || !!failed);
   updBar.classList.toggle('on', show);
   if (!show) return;
   const html = s.status === 'ready'
-    ? 'A new version of Ashen Grimoire is ready. <button type="button" class="btn small ember" id="updGo">Restart to update</button> <span class="k">(or it installs next time you close the game)</span>'
-    : `Downloading the new version… ${s.progress}%`;
+    ? `${failed}A new version of Ashen Grimoire is ready. <button type="button" class="btn small ember" id="updGo">${failed ? 'Try again' : 'Restart to update'}</button> <span class="k">(or it installs next time you close the game)</span>`
+    : s.status === 'downloading' ? `${failed}Downloading the new version… ${s.progress}%`
+    : `${failed}<a href="https://github.com/Zimmdob/ashen-grimoire/releases/latest" target="_blank" rel="noopener">Get the latest version</a>`;
   if (updBar.dataset.html !== html) {
     updBar.dataset.html = html;
     updBar.innerHTML = html;
-    document.getElementById('updGo')?.addEventListener('click', () => { updBar.innerHTML = 'Updating… the game will open again in a few seconds.'; agApp?.restartToUpdate(); });
+    document.getElementById('updGo')?.addEventListener('click', () => { updBar.innerHTML = 'Updating… a small window shows the progress, then the game opens again.'; agApp?.restartToUpdate(); });
   }
 }
 if (agApp) {

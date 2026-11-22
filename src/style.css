@@ -426,3 +426,4 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
   padding: 6px 12px; background: #1c1310; border: 2px solid #8a6a30; box-shadow: 0 4px 18px rgba(0, 0, 0, .7); color: var(--parch); font-size: 15px; }
 #updBar.on { display: flex; }
 #updBar .k { color: var(--dim); font-size: 13px; }
+#updBar .warn { color: #ffb070; }
