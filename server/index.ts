@@ -9,21 +9,53 @@ import { applyAction, createWorld } from '../src/sim/game';
 import type { Action, PlayerSetup, World, WorldOptions } from '../src/sim/types';
 import { cleanLook, TRAITS } from '../src/sim/character';
 import { BUILD, sameBuild } from '../src/version';
-import { dailySeed, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/net/protocol';
+import { dailySeed, REJOIN_GRACE_MS, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/net/protocol';
+import { randomBytes } from 'node:crypto';
 
 // Authoritative lockstep relay. It runs the exact same simulation as the clients, validates every
 // action against it, and broadcasts only the accepted actions. Usage: npm run server [port]
 
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8787);
 
-interface Room { code: string; host: string; players: LobbyPlayer[]; builds: Map<string, string>; sockets: Map<string, WebSocket>; world: World | null; seed: number; log: Action[]; opts: WorldOptions }
+interface Room {
+  code: string; host: string; players: LobbyPlayer[]; builds: Map<string, string>; sockets: Map<string, WebSocket>; world: World | null; seed: number; log: Action[]; opts: WorldOptions;
+  /** The party as it was when the run began (the world is rebuilt from this plus the log). */
+  startPlayers: LobbyPlayer[];
+  /** Each player's secret for taking their seat back. */
+  tokens: Map<string, string>;
+  /** Players whose connection dropped mid-run: their seat is held until this timer runs out. */
+  away: Map<string, ReturnType<typeof setTimeout>>;
+}
 const rooms = new Map<string, Room>();
 let nextPid = 1;
 
 const code = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 const send = (ws: WebSocket, m: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
 const broadcast = (r: Room, m: ServerMsg) => r.sockets.forEach((ws) => send(ws, m));
-const lobby = (r: Room, again = false) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, again, build: BUILD.sha, buildTime: BUILD.time, builds: Object.fromEntries(r.builds) }));
+const lobby = (r: Room, again = false) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, again, build: BUILD.sha, buildTime: BUILD.time, builds: Object.fromEntries(r.builds), token: r.tokens.get(pid) }));
+const runLive = (r: Room) => !!r.world && r.world.phase !== 'dead' && r.world.phase !== 'victory';
+/** A player is gone for good: they leave the run (their wizard steps out) and the room. */
+function dropPlayer(r: Room, pid: string) {
+  const t = r.away.get(pid);
+  if (t) clearTimeout(t);
+  r.away.delete(pid);
+  r.sockets.delete(pid);
+  r.players = r.players.filter((p) => p.pid !== pid);
+  r.builds.delete(pid);
+  r.tokens.delete(pid);
+  if (r.world) {
+    const a: Action = { t: 'leave', pid };
+    applyAction(r.world, a);
+    r.world.events.length = 0;
+    r.log.push(a);
+    broadcast(r, { t: 'action', seq: r.log.length, a });
+  }
+  broadcast(r, { t: 'left', pid });
+  if (!r.sockets.size && !r.away.size) rooms.delete(r.code);
+  else if (!r.world && r.players.length) { if (r.host === pid) r.host = r.players[0].pid; lobby(r); }
+}
+// Protocol-level pings too: some networks drop connections that carry nothing for a minute or two.
+setInterval(() => { for (const r of rooms.values()) for (const ws of r.sockets.values()) { try { ws.ping(); } catch { /* closing */ } } }, 25_000).unref?.();
 /** Everyone whose game build differs from this server's (co-op is lockstep: one build per game). */
 const outOfDate = (r: Room) => r.players.filter((p) => !sameBuild(r.builds.get(p.pid), BUILD.sha)).map((p) => p.name);
 /** Clean a client's character sheet; the sim re-validates classes, origins and trait budgets itself. */
@@ -98,13 +130,33 @@ wss.on('connection', (ws) => {
   ws.on('message', (data) => {
     let m: ClientMsg;
     try { m = JSON.parse(String(data)); } catch { return; }
+    if (m.t === 'ping') { send(ws, { t: 'pong' }); return; }
+    if (m.t === 'rejoin') {
+      if (room) return;
+      const r = rooms.get(String(m.code).toUpperCase());
+      const tok = r?.tokens.get(String(m.pid));
+      if (!r || !tok || tok !== m.token || !r.players.some((p) => p.pid === m.pid)) return send(ws, { t: 'error', err: 'Your seat in that game has closed. Start or join a new one.' });
+      room = r;
+      pid = String(m.pid);
+      const t = r.away.get(pid);
+      if (t) clearTimeout(t);
+      r.away.delete(pid);
+      const old = r.sockets.get(pid);
+      r.sockets.set(pid, ws);
+      if (old && old !== ws) { try { old.terminate(); } catch { /* already gone */ } }
+      send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, build: BUILD.sha, buildTime: BUILD.time, builds: Object.fromEntries(r.builds), token: tok });
+      if (r.world) send(ws, { t: 'start', seed: r.seed, players: r.startPlayers, opts: r.opts, log: r.log });
+      const name = r.players.find((p) => p.pid === pid)?.name ?? 'A companion';
+      r.sockets.forEach((o, id) => { if (id !== pid) send(o, { t: 'back', pid, name }); });
+      return;
+    }
     if (m.t === 'host' || m.t === 'join') {
       if (room) return;
       pid = `p${nextPid++}`;
       if (m.t === 'host') {
         let c = code();
         while (rooms.has(c)) c = code();
-        room = { code: c, host: pid, players: [], builds: new Map(), sockets: new Map(), world: null, seed: (Math.random() * 2 ** 31) | 0, log: [], opts: cleanOpts(m.opts) };
+        room = { code: c, host: pid, players: [], builds: new Map(), sockets: new Map(), world: null, seed: (Math.random() * 2 ** 31) | 0, log: [], opts: cleanOpts(m.opts), startPlayers: [], tokens: new Map(), away: new Map() };
         rooms.set(c, room);
       } else {
         room = rooms.get(String(m.code).toUpperCase()) ?? null;
@@ -115,6 +167,7 @@ wss.on('connection', (ws) => {
       room.players.push(cleanSetup(pid, m.setup));
       room.builds.set(pid, typeof m.build === 'string' ? m.build.slice(0, 16) : 'dev');
       room.sockets.set(pid, ws);
+      room.tokens.set(pid, randomBytes(12).toString('hex'));
       lobby(room);
       return;
     }
@@ -123,7 +176,8 @@ wss.on('connection', (ws) => {
       const stale = outOfDate(room);
       if (stale.length) return send(ws, { t: 'error', err: `Not everyone is on the same version yet: ${stale.join(', ')}. Their game updates itself; wait a moment and try again.` });
       if (room.opts.daily) room.seed = dailySeed();
-      room.world = createWorld(room.seed, room.players, room.opts);
+      room.startPlayers = room.players.map((p) => ({ ...p }));
+      room.world = createWorld(room.seed, room.startPlayers, room.opts);
       room.world.events.length = 0;
       broadcast(room, { t: 'start', seed: room.seed, players: room.players, opts: room.opts, log: [] });
       return;
@@ -136,6 +190,7 @@ wss.on('connection', (ws) => {
       if (room.world) {
         room.world = null;
         room.log = [];
+        room.startPlayers = [];
         room.seed = (Math.random() * 2 ** 31) | 0;
         if (!room.players.some((p) => p.pid === room!.host)) room.host = room.players[0]?.pid ?? pid;
       }
@@ -151,21 +206,21 @@ wss.on('connection', (ws) => {
       broadcast(room, { t: 'action', seq: room.log.length, a });
     }
   });
-  ws.on('close', () => {
+  ws.on('close', (codeNum: number, why: Buffer) => {
     if (!room) return;
-    room.sockets.delete(pid);
-    room.players = room.players.filter((p) => p.pid !== pid);
-    room.builds.delete(pid);
-    if (room.world) {
-      const a: Action = { t: 'leave', pid };
-      applyAction(room.world, a);
-      room.world.events.length = 0;
-      room.log.push(a);
-      broadcast(room, { t: 'action', seq: room.log.length, a });
+    const r = room;
+    if (r.sockets.get(pid) !== ws) return; // replaced by a newer connection for the same seat
+    // A deliberate leave (title screen, quit) goes at once. A dropped connection mid-run keeps the
+    // seat warm so the player can come straight back where they were.
+    const meant = codeNum === 4000 || String(why) === 'leave';
+    if (!meant && runLive(r) && r.tokens.has(pid)) {
+      r.sockets.delete(pid);
+      const name = r.players.find((p) => p.pid === pid)?.name ?? 'A companion';
+      broadcast(r, { t: 'away', pid, name, graceSec: Math.round(REJOIN_GRACE_MS / 1000) });
+      r.away.set(pid, setTimeout(() => { if (rooms.get(r.code) === r && r.away.has(pid)) dropPlayer(r, pid); }, REJOIN_GRACE_MS));
+      return;
     }
-    broadcast(room, { t: 'left', pid });
-    if (!room.sockets.size) rooms.delete(room.code);
-    else if (!room.world) { if (room.host === pid) room.host = room.players[0].pid; lobby(room); }
+    dropPlayer(r, pid);
   });
 });
 function lanAddrs() { return Object.values(networkInterfaces()).flat().filter((n) => n && n.family === 'IPv4' && !n.internal).map((n) => n!.address); }

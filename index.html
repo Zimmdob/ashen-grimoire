@@ -20,6 +20,7 @@
         <canvas id="cv" aria-label="The dungeon"></canvas>
         <div id="banner"></div>
         <div id="toast" role="status"></div>
+        <div id="netBanner" role="status" aria-live="polite"></div>
         <div id="tip" role="status" aria-live="polite"></div>
         <div id="aimTag" aria-hidden="true"></div>
         <div id="touchbar" aria-label="Touch controls">
@@ -57,7 +58,8 @@
           <div id="marks" aria-label="Spell bookmarks"></div>
         </div>
         <div id="actions">
-          <button id="clearBtn" class="btn small" type="button">Clear</button>
+          <button id="undoBtn" class="btn small" type="button" title="Take the last card out of the spell (Backspace)">Undo card</button>
+          <button id="clearBtn" class="btn small" type="button" title="Take every card out of the spell (Esc)">Clear</button>
           <button id="endBtn" class="btn" type="button">End turn</button>
         </div>
       </div>
@@ -74,6 +76,7 @@
         <button id="muteBtn" class="btn small" type="button">Sound on</button>
         <button id="guideBtn" class="btn small" type="button" title="What everything does (G)">Field Guide</button>
         <button id="feedbackBtn" class="btn small" type="button" title="Report a bug or share an idea">Feedback</button>
+        <button id="quitBtn" class="btn small" type="button" title="Leave this run and go back to the title screen">Quit run</button>
         <button id="styleBtn" class="btn small" type="button" title="Music style: Mixed plays dreamwave in menus and camp, dungeon synth while delving">Style: Mixed</button>
       </div>
     </aside>

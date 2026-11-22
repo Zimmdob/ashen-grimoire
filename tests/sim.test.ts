@@ -532,3 +532,31 @@ describe('walking through friends', () => {
     expect(freeAt(w, a.x, a.y, a.r, a)).toBe(true);
   });
 });
+
+describe('party feedback', () => {
+  it('lets a player who has placed act while others are still choosing', () => {
+    const w = createWorld(21, [{ pid: 'p1', name: 'A', cls: 'spellwright' as never }, { pid: 'p2', name: 'B', cls: 'spellwright' as never }], { placement: true });
+    expect(w.phase).toBe('placing');
+    const a = playerUnit(w, w.players[0])!;
+    expect(applyAction(w, { t: 'place', pid: 'p1', x: a.x, y: a.y }).ok).toBe(true);
+    expect(w.phase).toBe('placing');
+    // p1 may end the turn; foes still wait for p2
+    const turn = w.turn;
+    expect(applyAction(w, { t: 'endTurn', pid: 'p1' }).ok).toBe(true);
+    expect(w.turn).toBe(turn);
+    // p2 has not placed, so cannot act yet
+    expect(applyAction(w, { t: 'endTurn', pid: 'p2' }).ok).toBe(false);
+  });
+  it('offers nine runes on level-up', () => {
+    expect(RULES.RUNES_PER_LEVEL).toBe(9);
+  });
+  it('outlines how far you can walk, no farther than your stamina', async () => {
+    const { reachOutline } = await import('../src/sim/reach');
+    const w = createWorld(4, [{ pid: 'p1', name: 'A', cls: 'spellwright' as never }]);
+    const u = playerUnit(w, w.players[0])!;
+    const segs = reachOutline(w, u, 120);
+    expect(segs.length).toBeGreaterThan(8);
+    for (let i = 0; i < segs.length; i += 2) expect(Math.hypot(segs[i] - u.x, segs[i + 1] - u.y)).toBeLessThanOrEqual(120 + 33);
+    expect(reachOutline(w, u, 0)).toEqual([]);
+  });
+});

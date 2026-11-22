@@ -23,7 +23,7 @@ export const RULES = {
   STARTING_CARD_COUNT: 3,
   STAT_POINTS_PER_LEVEL: 120,
   /** Runes offered in the shop between depths (Spellmasons save rules: RUNES_PER_LEVEL 6). */
-  RUNES_PER_LEVEL: 6,
+  RUNES_PER_LEVEL: 9,
   /** Soulbinder (our Goru-style class), from the same save rules. */
   SOUL_STARTING: 2,
   SOUL_MAX_STARTING: 10,

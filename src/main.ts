@@ -5,7 +5,8 @@ import '@fontsource/im-fell-english';
 import { BH, BW, GameRenderer, SC, ZOOM_MAX } from './render/renderer';
 import { CARDS } from './sim/cards';
 import { RULES, UPGRADES } from './sim/constants';
-import { biomeOf, fromHand, PLACE_CLEARANCE, placeProblem, playerState, playerUnit, previewCast } from './sim/game';
+import { reachOutline } from './sim/reach';
+import { biomeOf, canActNow, fromHand, PLACE_CLEARANCE, placeProblem, playerState, playerUnit, previewCast } from './sim/game';
 import { predictThreats } from './sim/ai';
 import { findPath } from './sim/path';
 import { cantAfford, spellCost, type SpellPrice } from './sim/spell';
@@ -66,7 +67,7 @@ const me = () => (W && T ? playerState(W, T.localPid) : undefined);
 const myUnit = (): Unit | undefined => { const ps = me(); return W && ps ? playerUnit(W, ps) : undefined; };
 const canAct = () => {
   const ps = me(), u = myUnit();
-  return !!W && !!ps && !!u && W.phase === 'planning' && u.alive && !ps.endedTurn && !R.blocked;
+  return !!W && !!ps && !!u && canActNow(W, ps) && u.alive && !ps.endedTurn && !R.blocked;
 };
 let toastTimer = 0;
 function toast(msg: string) {
@@ -132,6 +133,15 @@ function attach(t: Transport) {
     dirty = true;
   };
   t.onError = (m) => toast(m);
+  if (t instanceof NetTransport) {
+    t.onNotice = (m) => toast(m);
+    t.onStatus = (st) => {
+      const b = $('netBanner');
+      b.classList.toggle('on', st === 'reconnecting');
+      b.textContent = 'Connection lost. Getting you back into the game…';
+      if (st === 'ok') toast('Reconnected. You are back in the game.');
+    };
+  }
 }
 
 R.onLog = (s) => { logLines.unshift(s); if (logLines.length > 40) logLines.pop(); $('log').innerHTML = logLines.map((l) => `<li>${esc(l)}</li>`).join(''); };
@@ -164,7 +174,7 @@ function unitAt(p: Pt, tight = false): Unit | null {
 function walkTick(dt: number) {
   if (!walking || !W || !T || !mouse) return;
   const ps = me(), u = myUnit();
-  if (!ps || !u || !u.alive || W.phase !== 'planning' || ps.endedTurn) return;
+  if (!ps || !u || !u.alive || !canActNow(W, ps) || ps.endedTurn) return;
   if (!R.freeToWalk(u.id)) return;
   if (u.stam < 1 && !W.portal) { if (walkStall++ === 0) toast('Out of stamina. Cast, or end your turn.'); return; }
   if (Math.hypot(mouse.x - u.x, mouse.y - u.y) < 6) return;
@@ -358,7 +368,7 @@ window.addEventListener('keydown', (e) => {
   if (!ps) return;
   if (k === ' ' || k === 'enter') { e.preventDefault(); endTurn(); }
   else if (k === 'escape') { spell = []; dirty = true; }
-  else if (k === 'backspace') { spell.pop(); dirty = true; }
+  else if (k === 'backspace') { e.preventDefault(); removeCard(); }
   else if (k === 'c') R.camOff = { x: 0, y: 0 };
   else if (k === 'r') { const t = downedNear(); if (t) send({ t: 'revive', pid: ps.pid, target: t.pid }); else toast('Nobody down beside you'); }
   else if (/^f[1-4]$/.test(k)) { e.preventDefault(); loadMark(Number(k[1]) - 1); }
@@ -581,21 +591,53 @@ function placeHoverTip() {
 }
 
 function addCard(id: string) {
-  if (!W || W.phase !== 'planning') return;
+  const ps0 = me();
+  if (!W || !ps0 || !canActNow(W, ps0)) return;
   if (spell.length >= 12) { toast('A spell may hold twelve cards'); return; }
   spell.push(id);
+  play('click');
+  dirty = true;
+}
+/** Take the last copy of a card (or, with no card named, the last card) out of the forged spell. */
+function removeCard(id?: string) {
+  const i = id ? spell.lastIndexOf(id) : spell.length - 1;
+  if (i < 0) return;
+  spell.splice(i, 1);
+  aimPt = null;
   play('click');
   dirty = true;
 }
 function endTurn() {
   const ps = me();
   if (!ps || !W || R.blocked) return;
-  if (W.phase !== 'planning') return;
+  if (!canActNow(W, ps)) return;
   spell = [];
   send({ t: 'endTurn', pid: ps.pid });
 }
 $('endBtn').addEventListener('click', endTurn);
 $('clearBtn').addEventListener('click', () => { spell = []; aimPt = null; dirty = true; });
+$('undoBtn').addEventListener('click', () => removeCard());
+// ---------------------------------------------------------------- quitting a run
+$('quitBtn').addEventListener('click', () => {
+  if (!W || W.phase === 'dead' || W.phase === 'victory') { title(); return; }
+  const coop = T instanceof NetTransport && W.players.filter((p) => !p.left).length > 1;
+  const box = document.createElement('div');
+  box.className = 'askbox';
+  box.innerHTML = `<div class="panel"><h2>Quit this run?</h2>
+    <p>${coop ? 'You leave the party and your wizard steps out of the run; your companions carry on without you. You keep the Ash you have earned so far.' : 'The run ends here, as if you had fallen: you keep the Ash you have earned so far.'}</p>
+    <div class="row"><button type="button" class="btn ember" data-q="yes">Quit to title</button><button type="button" class="btn" data-q="no">Keep playing</button></div></div>`;
+  document.body.appendChild(box);
+  const close = () => box.remove();
+  box.addEventListener('click', (e) => { if (e.target === box) close(); });
+  box.querySelector('[data-q="no"]')!.addEventListener('click', close);
+  box.querySelector('[data-q="yes"]')!.addEventListener('click', () => {
+    close();
+    if (W) bankRun(W, worldId);
+    if (T instanceof NetTransport) { leaveBoard(); T.close(); }
+    spell = [];
+    title();
+  });
+});
 $('muteBtn').addEventListener('click', () => { setMuted(!isMuted()); $('muteBtn').textContent = isMuted() ? 'Sound off' : 'Sound on'; });
 // Music: browsers only allow audio after a gesture, so the score begins on the first click or key.
 const musicBtn = $('musicBtn'), musicVol = $<HTMLInputElement>('musicVol');
@@ -667,7 +709,8 @@ function buildRack() {
     b.addEventListener('pointerup', cancel);
     b.addEventListener('pointerleave', cancel);
     b.addEventListener('pointercancel', cancel);
-    b.addEventListener('contextmenu', (e) => e.preventDefault());
+    // right-click a card in your hand to take one of it back out of the spell
+    b.addEventListener('contextmenu', (e) => { e.preventDefault(); if (!coarse) removeCard(b.dataset.id!); });
     b.addEventListener('click', () => { if (long) { long = false; return; } if (coarse) hoverCard = null; addCard(b.dataset.id!); });
     b.addEventListener('mouseenter', () => { if (!coarse) { hoverCard = b.dataset.id!; dirty = true; } });
     b.addEventListener('mouseleave', () => { if (!coarse) { hoverCard = null; dirty = true; } });
@@ -741,13 +784,20 @@ function refreshHud() {
   document.getElementById('reviveBtn')?.addEventListener('click', () => send({ t: 'revive', pid: ps.pid, target: downed!.pid }));
   if (u.downed > 0) $('surv').insertAdjacentHTML('afterbegin', `<b class="bad">You are down: ${u.downed} turn${u.downed === 1 ? '' : 's'} for a companion to reach you.</b>`);
   $('queue').innerHTML = spell.length
-    ? spell.map((id, i) => `${i ? '<span class="arrow">›</span>' : ''}<button type="button" class="chip" data-i="${i}" style="--c:${SCHOOL_COLOR[CARDS[id].school]}"><img alt="" src="${cardIcon(id, CARDS[id].school)}">${esc(CARDS[id].name)}</button>`).join('')
+    ? spell.map((id, i) => `${i ? '<span class="arrow">›</span>' : ''}<button type="button" class="chip" data-i="${i}" title="Click to take ${esc(CARDS[id].name)} out of the spell" style="--c:${SCHOOL_COLOR[CARDS[id].school]}"><img alt="" src="${cardIcon(id, CARDS[id].school)}">${esc(CARDS[id].name)}<span class="x" aria-hidden="true">✕</span></button>`).join('')
     : '<span class="empty">Click cards to forge a spell. They resolve left to right.</span>';
-  for (const c of $('queue').querySelectorAll<HTMLButtonElement>('.chip')) c.addEventListener('click', () => { spell.splice(Number(c.dataset.i), 1); dirty = true; });
+  for (const c of $('queue').querySelectorAll<HTMLButtonElement>('.chip')) {
+    const drop = (e: Event) => { e.preventDefault(); spell.splice(Number(c.dataset.i), 1); aimPt = null; play('click'); dirty = true; };
+    c.addEventListener('click', drop);
+    c.addEventListener('contextmenu', drop);
+  }
+  $<HTMLButtonElement>('undoBtn').disabled = !spell.length;
+  $<HTMLButtonElement>('clearBtn').disabled = !spell.length;
   const bad = !!cantAfford(ps, u, cost);
   const lethal = !!spell.length && !!cachedPv?.selfDies;
-  if (W.phase !== 'placing') $('qcost').innerHTML = spell.length ? `Costs <span class="${bad ? 'bad' : ''}">${priceText(ps, cost)}</span>. ${lethal ? '<span class="bad">Aimed here, this spell kills you.</span>' : (coarse ? (aimPt ? 'Press Cast, or tap to re-aim.' : 'Tap a target within the violet ring to aim.') : 'Click a target within the violet ring.')}` : coarse ? `Hold the map to walk · tap to move or inspect · long-press a card to read it · Reach ${u.range}` : `Hold right-click to walk · Reach ${u.range} · Esc clears the spell · Space ends the turn`;
-  if (W.phase === 'placing') {
+  const choosing = W.phase === 'placing' && !ps.placed;
+  if (!choosing) { delete $('qcost').dataset.place; $('qcost').innerHTML = spell.length ? `Costs <span class="${bad ? 'bad' : ''}">${priceText(ps, cost)}</span>. ${lethal ? '<span class="bad">Aimed here, this spell kills you.</span>' : (coarse ? (aimPt ? 'Press Cast, or tap to re-aim.' : 'Tap a target within the violet ring to aim.') : 'Click a target within the violet ring. Right-click a card (or press Backspace) to take it back out.')}` : coarse ? `Hold the map to walk · tap to move or inspect · long-press a card to read it · Reach ${u.range}` : `Hold right-click to walk · Reach ${u.range} · Esc clears the spell · Space ends the turn`; }
+  if (choosing) {
     const others = W.players.filter((p) => !p.placed && !p.left && p.pid !== ps.pid).map((p) => esc(p.name));
     const html = ps.placed
       ? `Waiting for ${others.join(', ') || 'your companions'} to choose where to begin.`
@@ -760,10 +810,10 @@ function refreshHud() {
   } else $('qcost').dataset.place = '';
   document.body.classList.toggle('forging', spell.length > 0);
   $<HTMLButtonElement>('castBtn').disabled = !aimPt || !spell.length;
-  const waiting = ps.endedTurn && W.phase === 'planning';
-  $<HTMLButtonElement>('endBtn').disabled = W.phase !== 'planning' || ps.endedTurn || !u.alive;
+  const waiting = ps.endedTurn && canActNow(W, ps);
+  $<HTMLButtonElement>('endBtn').disabled = !canActNow(W, ps) || ps.endedTurn || !u.alive;
   $('endBtn').textContent = waiting ? 'Waiting…' : 'End turn';
-  const phaseTxt = W.phase === 'placing' ? 'Choose where to begin' : W.phase === 'enemies' || R.blocked ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
+  const phaseTxt = W.phase === 'placing' ? (ps.placed ? 'Others are still choosing where to begin (you can act)' : 'Choose where to begin') : W.phase === 'enemies' || R.blocked ? 'The dark stirs…' : waiting ? 'Waiting for companions' : W.portal ? 'The portal is open' : `Turn ${W.turn}`;
   const b = biomeOf(W);
   const moon = W.run.bloodMoon ? ' · <span class="bad">Blood moon</span>' : '';
   $('banner').innerHTML = `${esc(b.name)} · ${esc(floorName(W))}<small>Depth ${roman(W.level)} · ${phaseTxt} · ${W.kills} slain${moon}</small><small class="rule">${esc(b.rule)}</small>`;
@@ -829,6 +879,8 @@ function refreshInfoInner() {
     <li>Your lantern burns each turn. Oil flasks and braziers refill it; in the dark, Shades hunt you.</li><li>In co-op a fallen companion is only down: stand beside them and press R.</li></ul>`;
 }
 
+let reachKey = '';
+let reachCache: number[] = [];
 function updateOverlays() {
   if (!W) return;
   const ps = me();
@@ -843,8 +895,20 @@ function updateOverlays() {
       foes: W.units.filter((v) => v.alive && v.faction === 'enemy' && !UNITS[v.type].prop).map((v) => ({ x: v.x, y: v.y })),
     };
   }
-  const idle = !R.blocked && W.phase === 'planning';
+  const idle = !R.blocked && !!ps && canActNow(W, ps);
   o.castRing = null; o.aim = null; o.path = null; o.targets = new Set(); o.after = null; o.zones = []; o.first = null;
+  // how far you can still walk (hidden while a spell is forged, to keep aiming clear)
+  o.reach = null;
+  o.spend = null;
+  if (idle && ps && u && u.alive && !ps.endedTurn && !W.portal && u.downed === 0 && u.stam >= 1 && !spell.length) {
+    const key = `${W.level}|${W.beat}|${Math.round(u.x)}|${Math.round(u.y)}|${Math.floor(u.stam)}`;
+    if (key !== reachKey) { reachKey = key; reachCache = reachOutline(W, u, u.stam); }
+    o.reach = reachCache;
+  }
+  if (ps && u && spell.length) {
+    const c = W.duet === W.turn ? null : spellCost(ps, spell);
+    if (c) o.spend = { id: u.id, amount: ps.cls === 'soulbinder' ? c.souls : c.mana };
+  }
   let tag = '';
   let tagAt: Pt | null = null;
   if (idle && ps && u && u.alive && !ps.endedTurn && spell.length && coarse && !aimPt) o.castRing = { x: u.x, y: u.y, r: u.range };
@@ -950,7 +1014,7 @@ function loop() {
   if (!W) return;
   if (!R.blocked) {
     const k = `${W.beat}|${W.phase}`;
-    if (k !== threatKey && W.phase === 'planning') {
+    if (k !== threatKey && (W.phase === 'planning' || W.phase === 'placing')) {
       threatKey = k;
       const t = predictThreats(W);
       R.ov.threats = t.threats;
@@ -959,7 +1023,7 @@ function loop() {
       threatDmg = u ? t.dmgTo.get(u.id) ?? 0 : 0;
       dirty = true;
     }
-    if (W.phase !== 'planning') { R.ov.threats = new Set(); R.ov.predicted = new Map(); threatDmg = 0; }
+    if (W.phase !== 'planning' && W.phase !== 'placing') { R.ov.threats = new Set(); R.ov.predicted = new Map(); threatDmg = 0; }
   } else if (R.ov.threats.size && !walking) { R.ov.threats = new Set(); R.ov.predicted = new Map(); threatDmg = 0; }
   if (frame % 2 === 0) updateOverlays();
   if (frame % 10 === 0) {

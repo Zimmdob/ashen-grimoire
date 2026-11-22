@@ -472,6 +472,22 @@ function resolveWorldTurn(w: World) {
 }
 
 const fail = (err: string): ActionResult => ({ ok: false, err });
+/**
+ * May this player act? In the planning phase, yes; while the party is still choosing where to begin,
+ * anyone who has already chosen may get going (foes only move once everyone ends the turn).
+ */
+export const canActNow = (w: World, ps: PlayerState) => w.phase === 'planning' || (w.phase === 'placing' && ps.placed && !ps.left);
+
+/**
+ * A rejoining player rebuilt this world by replaying the whole game: drop the replay's events and
+ * describe the world as it stands now, so the renderer draws the present instead of the history.
+ */
+export function resyncEvents(w: World) {
+  w.events.length = 0;
+  emit(w, { k: 'level', snap: structuredClone({ level: w.level, MW: w.MW, MH: w.MH, map: w.map, torches: w.torches, units: w.units, pickups: w.pickups, biome: w.run.region, wells: w.wells }) });
+  if (w.portal) emit(w, { k: 'portal', x: w.portal.x, y: w.portal.y });
+  emit(w, { k: 'phase', phase: w.phase });
+}
 const allDone = (w: World) => w.players.every((p) => p.endedTurn || p.left || !isStanding(w, p));
 
 function applyMutation(u: Unit, m: string) {
@@ -502,7 +518,7 @@ export function applyAction(w: World, a: Action): ActionResult {
   if (!u) return fail('You have left this game');
   switch (a.t) {
     case 'move': {
-      if (w.phase !== 'planning') return fail('Not your turn');
+      if (!canActNow(w, ps)) return fail('Not your turn');
       if (!u.alive) return fail('You are dead');
       if (u.downed > 0) return fail('You are down. Your partner must revive you.');
       if (ps.endedTurn) return fail('You have ended your turn');
@@ -521,7 +537,7 @@ export function applyAction(w: World, a: Action): ActionResult {
       return { ok: true };
     }
     case 'cast': {
-      if (w.phase !== 'planning') return fail('Not your turn');
+      if (!canActNow(w, ps)) return fail('Not your turn');
       if (!u.alive) return fail('You are dead');
       if (u.downed > 0) return fail('You are down. Your partner must revive you.');
       if (ps.endedTurn) return fail('You have ended your turn');
@@ -551,7 +567,7 @@ export function applyAction(w: World, a: Action): ActionResult {
       return { ok: true };
     }
     case 'endTurn': {
-      if (w.phase !== 'planning') return fail('Not your turn');
+      if (!canActNow(w, ps)) return fail('Not your turn');
       if (ps.endedTurn) return fail('Already ended');
       if (!hostilesLeft(w)) return fail('Walk into the portal to go on');
       ps.endedTurn = true;

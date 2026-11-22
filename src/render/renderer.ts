@@ -48,6 +48,10 @@ export interface Overlays {
   aim: { from: Pt; to: Pt; ok: boolean } | null;
   /** Placement: where you would appear, whether you may, and the no-go circles around foes. */
   place: { x: number; y: number; ok: boolean; foes: Pt[]; clear: number } | null;
+  /** How far you can still walk this turn: outline segments [x1, y1, x2, y2, ...]. */
+  reach: number[] | null;
+  /** What your forged spell would spend from your own bar (shown dimmed on it). */
+  spend: { id: number; amount: number } | null;
 }
 
 export class GameRenderer {
@@ -208,7 +212,7 @@ export class GameRenderer {
   camOff = { x: 0, y: 0 };
   followId: number | null = null;
   worldRef: World | null = null;
-  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null, place: null, zones: [], first: null };
+  ov: Overlays = { threats: new Set(), targets: new Set(), predicted: new Map(), after: null, hoverId: null, path: null, castRing: null, aim: null, place: null, zones: [], first: null, reach: null, spend: null };
   onLog: (s: string) => void = () => {};
   onSfx: (s: string) => void = () => {};
   onPhase: (p: string) => void = () => {};
@@ -695,6 +699,15 @@ export class GameRenderer {
     const g = this.uiG;
     g.clear();
     const o = this.ov;
+    if (o.reach && o.reach.length) {
+      // how far you can still walk: a soft outline, gently breathing so it reads as a guide, not a wall
+      // the same thickness on screen at every zoom
+      const r = o.reach, px = 1 / (this.mode3d ? this.decalK * 0.9 : SC);
+      for (let i = 0; i < r.length; i += 4) g.moveTo(r[i], r[i + 1]).lineTo(r[i + 2], r[i + 3]);
+      g.stroke({ width: 7 * px, color: 0x9fe0b0, alpha: 0.13 });
+      for (let i = 0; i < r.length; i += 4) g.moveTo(r[i], r[i + 1]).lineTo(r[i + 2], r[i + 3]);
+      g.stroke({ width: 2 * px, color: 0xc8f5d0, alpha: 0.55 + Math.sin(now / 700) * 0.1 });
+    }
     if (this.portal) {
       const p = this.portal;
       for (let i = 0; i < 4; i++) {
@@ -905,6 +918,20 @@ export class GameRenderer {
         g.rect(sx + 4, sy + 10, 1, 2).fill({ color: 0x1a0808 }).rect(sx + 7, sy + 10, 1, 2).fill({ color: 0x1a0808 });
       }
       if (v.s.shield > 0) g.rect(x, y - 3, Math.min(w, w * (v.s.shield / v.s.maxHp)), 2).fill({ color: 0x6fd0ff });
+      // spellwrights: mana (or souls) in a thin bar under health, with what the forged spell would spend dimmed
+      let py = y + 6;
+      if (v.owner) {
+        const souls = !(v.s.maxMana > 0) && v.s.maxSouls > 0;
+        const max = souls ? v.s.maxSouls : v.s.maxMana, cur = souls ? v.s.souls : v.s.mana;
+        if (max > 0) {
+          const k = Math.max(0, Math.min(1, cur / max));
+          g.rect(x - 2, y + 6, w + 4, 5).fill({ color: 0x000000, alpha: 0.85 });
+          g.rect(x, y + 7, w * k, 3).fill({ color: souls ? 0x5ad0c0 : 0x4a8cff });
+          const sp = o.spend && o.spend.id === v.id ? Math.min(cur, o.spend.amount) : 0;
+          if (sp > 0) g.rect(x + w * ((cur - sp) / max), y + 7, w * (sp / max), 3).fill({ color: 0xbfe0ff, alpha: 0.85 });
+          py = y + 12;
+        }
+      }
       const pips: number[] = [];
       if (v.s.poison) pips.push(0x9cff5a);
       if (v.s.frozen) pips.push(0x9fe8ff);
@@ -915,7 +942,7 @@ export class GameRenderer {
       if (v.s.weak) pips.push(0x8a6a4a);
       if (v.s.fortify) pips.push(0xcfd4e0);
       if (v.s.wet) pips.push(0x3a7ad8);
-      pips.forEach((c, i) => g.rect(x + i * 7, y + 6, 5, 5).fill({ color: c }).stroke({ width: 1, color: 0 }));
+      pips.forEach((c, i) => g.rect(x + i * 7, py, 5, 5).fill({ color: c }).stroke({ width: 1, color: 0 }));
       // affixes: small diamonds to the right of the bar
       (v.s.affixes ?? []).forEach((a, i) => {
         const dx = x + w + 6 + i * 9, dy = y + 2;
