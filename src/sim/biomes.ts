@@ -43,7 +43,7 @@ export const BIOMES: Record<string, BiomeDef> = {
   },
   hollows: {
     name: 'The Fungal Hollows', floors: ['Spore Caverns', 'The Bloom Heart'], band: 1, music: 1,
-    blurb: 'Glowing mushroom caverns. Food grows everywhere; light does not.', rule: 'Bog pools poison; mushrooms are food. Oil burns 30% faster.',
+    blurb: 'Glowing mushroom caverns. Healing grows everywhere; light does not.', rule: 'Bog pools poison; healing potions are plentiful. Oil burns 30% faster.',
     liquid: T_BOG, pools: [2, 4], ice: false, walls: 0.42, oilMul: 1.3, cold: false,
     foes: ['sporecaller', 'mycelid', 'ghoul', 'spitter'], boss: 'bloom', extraPickups: ['hp', 'hp', 'herb'],
     pal: { floor: ['#1e1a24', '#221d29', '#1a1720', '#251f2c'], top: '#2a2234', face: '#3a2e48', faceHi: '#4a3a5c', mortar: '#140f1a', accent: '#7ae0c0', torch: 0x9affd0 },
@@ -85,7 +85,7 @@ export const BIOMES: Record<string, BiomeDef> = {
   },
   library: {
     name: 'The Sunken Library', floors: ['Drowned Stacks', 'The Unwritten Vault'], band: 3, music: 2,
-    blurb: 'Whispering tomes and drowned shelves.', rule: 'Spell scrolls are everywhere, food is scarce.',
+    blurb: 'Whispering tomes and drowned shelves.', rule: 'Spell scrolls are everywhere.',
     liquid: T_WATER, pools: [1, 3], ice: false, walls: 0.44, oilMul: 1, cold: false,
     foes: ['inkwraith', 'lich', 'ghoul', 'xbow'], boss: 'unwritten', extraPickups: ['scroll', 'scroll', 'oil'],
     pal: { floor: ['#211c18', '#251f1a', '#1d1915', '#29221c'], top: '#2c241c', face: '#3e3226', faceHi: '#524232', mortar: '#140f0a', accent: '#e2cfa2', torch: 0xffd8a0 },

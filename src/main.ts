@@ -162,7 +162,7 @@ function walkTick(dt: number) {
   const ps = me(), u = myUnit();
   if (!ps || !u || !u.alive || W.phase !== 'planning' || ps.endedTurn) return;
   if (!R.freeToWalk(u.id)) return;
-  if (u.stam < 1) { if (walkStall++ === 0) toast('Out of stamina. Cast, or end your turn.'); return; }
+  if (u.stam < 1 && !W.portal) { if (walkStall++ === 0) toast('Out of stamina. Cast, or end your turn.'); return; }
   if (Math.hypot(mouse.x - u.x, mouse.y - u.y) < 6) return;
   const lead = RULES.MOVE_SPEED * 90; // keep ~90ms of walking queued ahead of the animation
   if (R.pendingWalk(u.id) > lead) return;
@@ -612,7 +612,7 @@ function refreshHud() {
   $('hpPred').style.width = `${(100 * loss) / u.maxHp}%`;
   $('hpTxt').textContent = `Health ${hp}/${u.maxHp}${u.shield ? `  +${u.shield} ward` : ''}${loss ? `  (−${loss} next turn)` : ''}`;
   const cls = ps.cls;
-  const inf = u.stam >= RULES.CLEARED_STAMINA;
+  const inf = u.stam >= RULES.CLEARED_STAMINA || (!!W.portal && W.phase === 'planning');
   // The second bar is whatever this calling pays with.
   let cur = u.mana, max = u.maxMana, spendRaw = cost.mana, label = `Mana ${u.mana}/${u.maxMana}  +${u.regen} a turn`;
   if (cls === 'soulbinder') { cur = u.souls; max = u.maxSouls; spendRaw = cost.souls; label = `Souls ${u.souls}/${u.maxSouls}`; }
@@ -782,7 +782,7 @@ function updateOverlays() {
     } else if (!hoverCard && !$('overlay').classList.contains('on') && (!coarse || walking)) {
       const key = `${Math.round(mouse.x / 8)}|${Math.round(mouse.y / 8)}|${W.beat}|${Math.round(u.x)}|${Math.round(u.y)}`;
       if (key !== lastPathKey) { const path = findPath(W, u, mouse, { lavaCost: 30 }); cachedPath = path && path.length ? [{ x: u.x, y: u.y }, ...path] : null; lastPathKey = key; }
-      if (cachedPath) o.path = { pts: cachedPath, limit: u.stam };
+      if (cachedPath) o.path = { pts: cachedPath, limit: W.portal ? RULES.CLEARED_STAMINA : u.stam };
     }
   }
   placeAimTag(tag, tagAt);

@@ -439,6 +439,8 @@ function playerUpkeep(w: World, ps: PlayerState) {
   if (ps.chill >= 3) { stam = Math.floor(stam / 2); emit(w, { k: 'float', id: u.id, text: 'numb with cold', color: 0xbff4ff }); }
   // a hexblade keeps unspent stamina up to double, since spells draw on it
   u.stam = ps.cls === 'hexblade' ? Math.max(stam, Math.min(u.stam, u.maxStam * 2)) : stam;
+  // Once the depth is cleared you roam freely, however many turns pass before you take the portal.
+  if (w.portal) u.stam = RULES.CLEARED_STAMINA;
   if (u.frozen > 0) { u.frozen--; emit(w, { k: 'float', id: u.id, text: 'frozen', color: 0x9fe8ff }); }
   if (u.fetter > 0) u.fetter--;
   sync(w, u);
@@ -504,6 +506,7 @@ export function applyAction(w: World, a: Action): ActionResult {
       if (!u.alive) return fail('You are dead');
       if (u.downed > 0) return fail('You are down. Your partner must revive you.');
       if (ps.endedTurn) return fail('You have ended your turn');
+      if (w.portal && !hostilesLeft(w) && u.stam < RULES.CLEARED_STAMINA) { u.stam = RULES.CLEARED_STAMINA; sync(w, u); } // cleared: roam freely
       if (u.stam < 1) return fail('No stamina left');
       const path = findPath(w, u, { x: a.x, y: a.y }, { lavaCost: 30 });
       if (!path || !path.length) return fail('No path');

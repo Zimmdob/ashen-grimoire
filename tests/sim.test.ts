@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RULES } from '../src/sim/constants';
 import { applyAction, enterCampForTest, createWorld, placeProblem, playerUnit, previewCast } from '../src/sim/game';
 import { CARD_IDS, CARDS } from '../src/sim/cards';
 import { spellCost } from '../src/sim/spell';
@@ -468,5 +469,22 @@ describe('systems', () => {
   it('every spell that is not a targeting card has its own look', () => {
     const missing = [...CARD_IDS, 'unleash'].filter((id) => CARDS[id] && CARDS[id].mode !== 'target' && !SPELL_LOOK_IDS.includes(id));
     expect(missing).toEqual([]);
+  });
+
+  it('a cleared depth keeps free roaming even if turns pass before taking the portal', () => {
+    const w = createWorld(41, [{ pid: 'p1', name: 'A' }]);
+    const ps = w.players[0];
+    const me = playerUnit(w, ps);
+    if (w.phase === 'placing') applyAction(w, { t: 'place', pid: 'p1', x: me.x, y: me.y });
+    // clear the depth: every foe falls
+    // the last foe dies to poison during the enemies' turn, which opens the portal mid-turn
+    w.wave = w.waves;
+    const foes = w.units.filter((v) => v.faction === 'enemy' && v.alive);
+    for (const v of foes.slice(1)) { v.hp = 0; v.alive = false; }
+    foes[0].hp = 1; foes[0].poison = 50;
+    applyAction(w, { t: 'endTurn', pid: 'p1' });
+    expect(w.portal).not.toBeNull();
+    expect(w.phase).toBe('planning');
+    expect(playerUnit(w, ps).stam).toBe(RULES.CLEARED_STAMINA);
   });
 });
