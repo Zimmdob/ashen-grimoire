@@ -1,4 +1,4 @@
-import { Application, Container, Graphics, RenderTexture, Sprite, Text, Texture, TextureStyle } from 'pixi.js';
+import { Application, Container, Graphics, RenderTexture, Sprite, Text, Texture, TextureStyle, UPDATE_PRIORITY } from 'pixi.js';
 import type { FxKind, GameEvent, LevelSnap, Pickup, Pt, Unit, UnitStatus, World } from '../sim/types';
 import { isLiquid, TILE, T_LAVA, T_WATER } from '../sim/constants';
 import { BIOMES } from '../sim/biomes';
@@ -10,6 +10,7 @@ import type { Zone } from '../sim/cards';
 import { paintSpell, spellLook, type SpellFx } from './spellfx';
 import { buildSprites, wizardSprite, type SpriteSet } from './sprites';
 import { drawGrain, drawLava, drawMap, lightBlob } from './mapArt';
+import { HudGraphics, View3D, type Light3, type UnitDraw } from './view3d';
 
 // The renderer never decides anything. It replays the simulation's event outbox beat by beat,
 // so a whole enemy turn that resolved in a millisecond plays out as readable animation.
@@ -29,7 +30,7 @@ interface View {
   main: Sprite; outline: Sprite; flashS: Sprite; ghost: Sprite;
 }
 interface Fx { kind: FxKind; x: number; y: number; x2: number; y2: number; r: number; color: number; t0: number; dur: number }
-interface Floater { t: Text; x: number; y: number; t0: number }
+interface Floater { t: Text; x: number; y: number; t0: number; gy: number }
 
 const FX_DUR: Record<FxKind, number> = { ring: 420, line: 320, proj: 230, lob: 460, burst: 380, column: 620, slash: 240, blink: 420, bolt: 300 };
 
@@ -83,6 +84,19 @@ export class GameRenderer {
   /** 1 = normal; above 1 zooms in, below 1 zooms out (down to the whole map). */
   zoom = 1;
 
+  // ---- 3D view: the Pixi canvas becomes an invisible floor decal (aim shapes, effects, markers)
+  // that the 3D scene lays on the ground; characters, walls and light are drawn by View3D.
+  mode3d = false;
+  private v3: View3D | null = null;
+  private decalK = 1;
+  private pixiSize = '';
+  private mapCanvas: HTMLCanvasElement | null = null;
+  private lights3: Light3[] = [];
+  private liquidDirty = false;
+  private hudG: HudGraphics | null = null;
+  /** Called with the canvas to sit under (the game canvas) when the 3D view is first needed. */
+  stageFor: (() => { stage: HTMLElement; cv: HTMLCanvasElement }) | null = null;
+
   /** Match the buffer's shape to the canvas on screen (CSS pixels w × h). */
   resize(w: number, h: number) {
     if (w < 10 || h < 10) return;
@@ -129,8 +143,18 @@ export class GameRenderer {
     const nh = aspect >= 1 ? short : Math.round(short / aspect);
     SC = (short * z) / 500;
     VIEW_W = nw / SC; VIEW_H = nh / SC;
-    if (nw === BW && nh === BH) return;
     BW = nw; BH = nh;
+    if (this.mode3d) {
+      this.placeV3();
+      const mw = this.snap ? this.snap.MW * TILE : 1024, mh = this.snap ? this.snap.MH * TILE : 640;
+      this.decalK = Math.min(1, 1800 / Math.max(mw, mh));
+      const key = `d${Math.ceil(mw * this.decalK)}x${Math.ceil(mh * this.decalK)}`;
+      if (key !== this.pixiSize) { this.pixiSize = key; this.app.renderer.resize(Math.ceil(mw * this.decalK), Math.ceil(mh * this.decalK)); }
+      return;
+    }
+    const key = `${nw}x${nh}`;
+    if (key === this.pixiSize) return;
+    this.pixiSize = key;
     this.app.renderer.resize(BW, BH);
     // A fresh light texture at the new size: resizing one in place keeps its old projection,
     // which leaves the torchlight and the darkness out of line with the map when zooming.
@@ -189,7 +213,9 @@ export class GameRenderer {
 
   async init(canvas: HTMLCanvasElement) {
     TextureStyle.defaultOptions.scaleMode = 'nearest';
-    await this.app.init({ canvas, width: BW, height: BH, background: '#000000', antialias: false, resolution: 1, autoDensity: false, roundPixels: true, preference: 'webgl' });
+    await this.app.init({ canvas, width: BW, height: BH, background: '#000000', backgroundAlpha: 0, antialias: false, resolution: 1, autoDensity: false, roundPixels: true, preference: 'webgl', preserveDrawingBuffer: true });
+    // the context is created with transparency (for the 3D view's floor decal); 2D still clears to black
+    this.app.renderer.background.alpha = 1;
     this.sprites = buildSprites();
     this.lightTex = Texture.from(lightBlob());
     this.lightRT = RenderTexture.create({ width: BW, height: BH });
@@ -205,6 +231,35 @@ export class GameRenderer {
     this.grain = new Sprite(Texture.from(drawGrain(BW, BH)));
     this.app.stage.addChild(this.world, this.lightSprite, this.over, this.grain);
     this.app.ticker.add(() => this.tick());
+    // after Pixi has drawn this frame's decal, the 3D scene picks it up
+    this.app.ticker.add(() => this.after3d(), undefined, UPDATE_PRIORITY.UTILITY);
+  }
+
+  /** Switch between the classic top-down view and the 3D view. Nothing about the game changes. */
+  set3d(on: boolean) {
+    if (on === this.mode3d) return;
+    if (on && !this.v3) {
+      const at = this.stageFor?.();
+      if (!at) return;
+      try { this.v3 = new View3D(at.stage, at.cv); } catch (err) { console.warn('3D view unavailable', err); return; }
+      this.hudG = new HudGraphics(this.v3.ctx);
+    }
+    this.mode3d = on;
+    const cv = this.app.canvas as HTMLCanvasElement;
+    // The game canvas stays on top (it still takes every click and touch) but turns invisible in 3D.
+    cv.style.opacity = on ? '0' : '';
+    this.v3?.show(on);
+    this.app.renderer.background.alpha = on ? 0 : 1;
+    for (const o of [this.mapSprite, this.lavaSprite, this.unitLayer, this.ghostLayer, this.lightSprite, this.grain, this.barG, this.floatLayer, this.pvLayer]) o.visible = !on;
+    this.pixiSize = '';
+    if (on && this.snap && this.v3 && this.mapCanvas && this.lavaCanvas) this.v3.buildLevel(this.snap, this.mapCanvas, this.lavaCanvas, cv);
+    this.applySize();
+  }
+
+  private placeV3() {
+    if (!this.v3) return;
+    const cv = this.app.canvas as HTMLCanvasElement;
+    this.v3.place(cv.offsetLeft, cv.offsetTop, cv.clientWidth, cv.clientHeight);
   }
 
   // ------------------------------------------------------------------ events
@@ -272,10 +327,10 @@ export class GameRenderer {
       case 'hurt':
         if (v) {
           v.s.hp = e.hp; v.s.shield = e.shield; v.flash = 1;
-          this.floater(v.x, v.y - 30 * this.scaleOf(v), `-${e.n}`, e.tone === 'poison' ? 0x9cff5a : e.tone === 'fire' ? 0xffa040 : 0xff5a4a);
+          this.floater(v.x, v.y - 30 * this.scaleOf(v), `-${e.n}`, e.tone === 'poison' ? 0x9cff5a : e.tone === 'fire' ? 0xffa040 : 0xff5a4a, v.y);
         }
         return 170;
-      case 'heal': if (v) { v.s.hp = e.hp; this.floater(v.x, v.y - 30 * this.scaleOf(v), `+${e.n}`, 0x7ee07e); } return 130;
+      case 'heal': if (v) { v.s.hp = e.hp; this.floater(v.x, v.y - 30 * this.scaleOf(v), `+${e.n}`, 0x7ee07e, v.y); } return 130;
       case 'die': if (v) { v.s.alive = false; v.path = []; if (UNITS[v.type].prop || UNITS[v.type].decoy) v.fade = 1; } return 220;
       case 'unit': if (v) v.s = { ...e.s }; return 0;
       case 'spawn': if (this.views.has(e.unit.id)) this.removeView(e.unit.id); this.addView(e.unit); return 160;
@@ -287,7 +342,7 @@ export class GameRenderer {
         // let the spell's look play a moment before its hits land
         return Math.min(380, look.dur * 0.45);
       }
-      case 'float': if (v) this.floater(v.x, v.y - 34 * this.scaleOf(v), e.text, e.color); return 160;
+      case 'float': if (v) this.floater(v.x, v.y - 34 * this.scaleOf(v), e.text, e.color, v.y); return 160;
       case 'pickup': { const p = this.pickups.get(e.id); if (p) { p.s.destroy(); this.pickups.delete(e.id); } return 0; }
       case 'portal': this.portal = { x: e.x, y: e.y }; return 300;
       case 'log': this.onLog(e.text); return 0;
@@ -335,6 +390,7 @@ export class GameRenderer {
     this.lavaCanvas.height = snap.MH * 16;
     this.lavaSprite.texture = Texture.from(this.lavaCanvas);
     this.refreshMap();
+    if (this.mode3d) { this.applySize(); this.v3?.buildLevel(snap, this.mapCanvas!, this.lavaCanvas, this.app.canvas as HTMLCanvasElement); }
     for (const u of snap.units) this.addView(u);
     for (const p of snap.pickups) this.addPickup(p);
     const me = this.followId != null ? snap.units.find((u) => u.id === this.followId) : null;
@@ -361,9 +417,14 @@ export class GameRenderer {
   private refreshMap() {
     const snap = this.snap;
     if (!snap || !this.lavaCanvas) return;
-    this.mapSprite.texture = Texture.from(drawMap(snap));
+    const old = this.mapSprite.texture;
+    this.mapCanvas = drawMap(snap);
+    this.mapSprite.texture = Texture.from(this.mapCanvas);
+    if (old && old !== Texture.EMPTY) old.destroy(true);
     drawLava(this.lavaCanvas, snap, performance.now() / 1000);
     this.lavaSprite.texture.source.update();
+    this.liquidDirty = true;
+    if (this.mode3d && this.v3) this.v3.refreshGround(snap, this.mapCanvas);
     this.lavaTiles = [];
     for (let y = 0; y < snap.MH; y++) for (let x = 0; x < snap.MW; x++) { const t = snap.map[y][x]; if (isLiquid(t)) this.lavaTiles.push({ x: x * TILE + 16, y: y * TILE + 16, t }); }
   }
@@ -432,13 +493,13 @@ export class GameRenderer {
     }
   }
 
-  private floater(x: number, y: number, text: string, color: number) {
+  private floater(x: number, y: number, text: string, color: number, gy = y) {
     const t = new Text({ text, style: { fontFamily: 'VT323, monospace', fontSize: 22, fill: color, stroke: { color: 0x000000, width: 4 } } });
     t.anchor.set(0.5, 1);
     t.resolution = 1;
     t.position.set(x, y);
     this.floatLayer.addChild(t);
-    this.floaters.push({ t, x, y, t0: performance.now() });
+    this.floaters.push({ t, x, y, t0: performance.now(), gy });
   }
 
   /** A spellwright's light: shrinks as the lantern runs dry; Night-eyed widens it, the Third Eye narrows it. */
@@ -452,7 +513,15 @@ export class GameRenderer {
   }
 
   // ------------------------------------------------------------------ frame
-  screenToWorld(bx: number, by: number): Pt { return { x: this.cam.x + bx / SC, y: this.cam.y + by / SC }; }
+  screenToWorld(bx: number, by: number): Pt {
+    if (this.mode3d && this.v3) return this.v3.pick(bx / BW, by / BH);
+    return { x: this.cam.x + bx / SC, y: this.cam.y + by / SC };
+  }
+  /** Where a world point on the floor shows on screen, in buffer pixels (inverse of screenToWorld). */
+  worldToBuffer(p: Pt): Pt {
+    if (this.mode3d && this.v3) { const f = this.v3.project(p.x, p.y); return { x: f.x * BW, y: f.y * BH }; }
+    return { x: (p.x - this.cam.x) * SC, y: (p.y - this.cam.y) * SC };
+  }
 
   private tick() {
     const now = performance.now();
@@ -477,12 +546,13 @@ export class GameRenderer {
     const { tx, ty } = this.clampCam()!;
     this.cam.x += (tx - this.cam.x) * 0.12;
     this.cam.y += (ty - this.cam.y) * 0.12;
-    for (const c of [this.world, this.over]) { c.scale.set(SC); c.position.set(Math.round(-this.cam.x * SC), Math.round(-this.cam.y * SC)); }
-    if (this.lavaCanvas && this.frame % 4 === 0) { drawLava(this.lavaCanvas, this.snap, now / 1000); this.lavaSprite.texture.source.update(); }
+    if (this.mode3d) for (const c of [this.world, this.over]) { c.scale.set(this.decalK); c.position.set(0, 0); }
+    else for (const c of [this.world, this.over]) { c.scale.set(SC); c.position.set(Math.round(-this.cam.x * SC), Math.round(-this.cam.y * SC)); }
+    if (this.lavaCanvas && this.frame % 4 === 0 && this.lavaTiles.length) { drawLava(this.lavaCanvas, this.snap, now / 1000); this.lavaSprite.texture.source.update(); this.liquidDirty = true; }
     this.drawUnits(now);
     this.drawFx(now);
     this.drawUi(now);
-    this.drawBars();
+    if (!this.mode3d) this.drawBars();
     this.drawLights(now);
     for (let i = this.floaters.length - 1; i >= 0; i--) {
       const f = this.floaters[i];
@@ -778,6 +848,7 @@ export class GameRenderer {
         t.style.fill = lc;
         t.visible = true;
         t.position.set(Math.round(v.x), Math.round(v.y - 34 * s - (a.alive ? 12 : 30)));
+        (t as Text & { gy?: number }).gy = v.y;
         n++;
       }
     }
@@ -788,15 +859,16 @@ export class GameRenderer {
     for (let i = from; i < this.pvTexts.length; i++) this.pvTexts[i].visible = false;
   }
 
-  private drawBars() {
-    const g = this.barG;
-    g.clear();
+  private drawBars(hg?: HudGraphics, at?: (v: View, x: number, y: number) => void) {
+    const g = (hg ?? this.barG) as unknown as Graphics;
+    if (!hg) this.barG.clear();
     const o = this.ov;
     for (const v of this.views.values()) {
       if (!v.s.alive || v.fade > 0) continue;
       const s = this.scaleOf(v);
-      if (v.s.downed > 0) { g.rect(Math.round(v.x) - 14, Math.round(v.y) - 30, 28, 4).fill({ color: 0xff3a2a }); continue; }
+      if (v.s.downed > 0) { at?.(v, v.x, v.y - 30); g.rect(Math.round(v.x) - 14, Math.round(v.y) - 30, 28, 4).fill({ color: 0xff3a2a }); continue; }
       const w = 30 * s, x = Math.round(v.x - w / 2), y = Math.round(v.y - 34 * s - 6);
+      at?.(v, v.x, y);
       const pct = Math.max(0, v.s.hp / v.s.maxHp);
       g.rect(x - 2, y - 2, w + 4, 8).fill({ color: 0x000000, alpha: 0.85 });
       const col = v.owner ? 0x9a5ad0 : v.s.faction === 'player' ? 0x4fb05a : 0xc0262a;
@@ -845,8 +917,10 @@ export class GameRenderer {
   }
 
   private drawLights(now: number) {
+    if (this.mode3d) this.collectLights3d(now);
     let li = 0, gi = 0;
     const L = (x: number, y: number, r: number, a: number) => {
+      if (this.mode3d) return;
       const bx = (x - this.cam.x) * SC, by = (y - this.cam.y) * SC, br = r * SC;
       if (bx < -br || by < -br || bx > BW + br || by > BH + br) return;
       let s = this.lightPool[li];
@@ -895,7 +969,110 @@ export class GameRenderer {
     }
     for (let i = li; i < this.lightPool.length; i++) this.lightPool[i].visible = false;
     for (let i = gi; i < this.glowPool.length; i++) this.glowPool[i].visible = false;
-    this.app.renderer.render({ container: this.lightCont, target: this.lightRT, clear: true });
+    if (!this.mode3d) this.app.renderer.render({ container: this.lightCont, target: this.lightRT, clear: true });
+  }
+
+  /** The 3D view's lamps, most important first: lanterns, the portal, wells, spells, then the nearest torches. */
+  private collectLights3d(now: number) {
+    const out: Light3[] = [];
+    for (const v of this.views.values()) {
+      if (!v.s.alive) continue;
+      if (v.owner) out.push({ x: v.x, y: v.y, h: 46, r: (this.lightRadius(v.owner) + Math.sin(now / 130) * 6) * 1.25, i: 1.15, color: 0xffd0a0 });
+      else if (v.s.faction === 'player' && !UNITS[v.type].prop) out.push({ x: v.x, y: v.y, h: 40, r: 140, i: 0.45, color: 0xc8d8ff });
+    }
+    if (this.portal) out.push({ x: this.portal.x, y: this.portal.y, h: 30, r: 220, i: 1, color: 0xb48cff });
+    for (const w of this.snap?.wells ?? []) out.push({ x: w.x, y: w.y, h: 30, r: 160, i: 0.7, color: 0x8060ff });
+    for (const f of this.spells) {
+      const look = spellLook(f.card);
+      if (!look) continue;
+      const k = 1 - (now - f.t0) / f.dur;
+      const p = f.pts[0] ?? f;
+      out.push({ x: p.x, y: p.y, h: 30, r: 160, i: 1.3 * k, color: look.color });
+    }
+    for (const f of this.fx.slice(-3)) out.push({ x: f.x2 ?? f.x, y: f.y2 ?? f.y, h: 30, r: 130, i: 0.9, color: f.color });
+    const cx = this.cam.x + VIEW_W / 2, cy = this.cam.y + VIEW_H / 2;
+    const torchCol = (BIOMES[this.snap?.biome ?? 'cellars'] ?? BIOMES.cellars).pal.torch;
+    const torches = [...(this.snap?.torches ?? [])].sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+    for (const t of torches) out.push({ x: t.x, y: t.y, h: 34, r: 200 + Math.sin(now / 90 + t.x) * 8, i: 1.05, color: torchCol });
+    // lava lights up its banks
+    const lava = this.lavaTiles.filter((p) => p.t === T_LAVA).sort((a, b) => Math.hypot(a.x - cx, a.y - cy) - Math.hypot(b.x - cx, b.y - cy));
+    for (const p of lava.slice(0, 2)) out.push({ x: p.x, y: p.y, h: 20, r: 150, i: 0.7, color: 0xff6a1e });
+    this.lights3 = out;
+  }
+
+  /** Runs after Pixi has drawn the decal: hand everything to the 3D scene, then draw bars and numbers on top. */
+  private after3d() {
+    if (!this.mode3d || !this.v3 || !this.snap) return;
+    const now = performance.now();
+    const units: UnitDraw[] = [];
+    const focus: Pt[] = [];
+    const cv = (t: Texture) => t.source.resource as HTMLCanvasElement;
+    for (const v of this.views.values()) {
+      const set = this.setFor(v.type, v.owner);
+      const alive = v.s.alive && !(v.s.downed > 0);
+      const s = this.scaleOf(v);
+      const tex = !v.s.alive ? set.dead : v.s.frozen > 0 && alive ? set.ice : set.base;
+      const threat = alive && this.ov.threats.has(v.id);
+      const targeted = this.ov.targets.has(v.id);
+      const hover = this.ov.hoverId === v.id && alive;
+      units.push({
+        id: v.id, x: v.x, y: v.y, size: 32 * s, flip: v.flip, alive: v.s.alive,
+        bob: alive && !UNITS[v.type].prop ? Math.sin(now / 320 + v.id) * 1.5 + 1.5 : 0,
+        tex: cv(tex), white: cv(set.white), outlineTex: cv(set.outline),
+        outline: targeted ? 0xffd24a : threat ? 0xff2a2a : hover ? 0xe9dcc0 : null,
+        flash: v.flash * 0.9, alpha: v.fade > 0 ? v.fade : v.s.downed > 0 && v.s.alive ? 0.85 : 1,
+        ghost: (v.s.alive ? 0.42 : 0.22) * (v.fade > 0 ? v.fade : 1),
+      });
+      if (v.owner && v.s.alive) focus.push(v);
+      if (hover || targeted) focus.push(v);
+    }
+    if (this.ov.aim) focus.push(this.ov.first ?? this.ov.aim.to);
+    this.v3.frame({
+      cx: this.cam.x + VIEW_W / 2, cy: this.cam.y + VIEW_H / 2, viewW: VIEW_W, viewH: VIEW_H,
+      units, lights: this.lights3, focus, torches: this.snap.torches, reveal: this.reveal,
+      // the floor overlay re-uploads every frame while something on it moves, otherwise a few times a second
+      decalDirty: this.frame % 4 === 0 || !!(this.ov.aim || this.ov.zones.length || this.ov.path || this.ov.place || this.ov.castRing || this.ov.after || this.fx.length || this.spells.length || this.portal || this.anyAnim()),
+      liquidDirty: this.liquidDirty,
+    });
+    this.liquidDirty = false;
+    this.drawHud3d();
+  }
+
+  /** Bars, damage numbers and outcome labels, drawn flat on screen over the 3D scene at each body's head. */
+  private drawHud3d() {
+    const v3 = this.v3!, ctx = v3.ctx, g = this.hudG!;
+    const W = v3.hudW, H = v3.hudH;
+    const place = (x: number, y: number, gy: number) => {
+      // a point that sits (gy - y) above a body's feet in 2D stands that high over it in 3D
+      const lift = Math.max(0, gy - y);
+      const f = v3.project(x, gy, lift * 1.35);
+      const k = v3.scaleAt(x, gy, lift);
+      return { sx: f.x * W, sy: f.y * H, k };
+    };
+    this.drawBars(g, (v, ax, ay) => {
+      const p = place(ax, ay, v.y);
+      ctx.setTransform(p.k, 0, 0, p.k, p.sx - ax * p.k, p.sy - ay * p.k);
+    });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    const texts: { t: Text; gy: number }[] = [];
+    for (const f of this.floaters) texts.push({ t: f.t, gy: f.gy });
+    for (const t of this.pvTexts) if (t.visible) texts.push({ t, gy: (t as Text & { gy?: number }).gy ?? t.y });
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.lineJoin = 'round';
+    for (const { t, gy } of texts) {
+      const p = place(t.x, t.y, gy);
+      const size = Math.max(12, Number(t.style.fontSize) * p.k);
+      ctx.font = `${size}px VT323, monospace`;
+      ctx.globalAlpha = t.alpha;
+      ctx.lineWidth = Math.max(2, 4 * p.k);
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(t.text, p.sx, p.sy);
+      const fill = t.style.fill as unknown;
+      ctx.fillStyle = typeof fill === 'number' ? '#' + fill.toString(16).padStart(6, '0') : String(fill ?? '#fff');
+      ctx.fillText(t.text, p.sx, p.sy);
+    }
+    ctx.globalAlpha = 1;
   }
 }
 

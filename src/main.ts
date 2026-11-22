@@ -338,6 +338,7 @@ window.addEventListener('keydown', (e) => {
   if (k === 'g' && !e.repeat) { openGuide(); return; }
   if ($('overlay').classList.contains('on')) return;
   if (k === 'z' && !e.repeat) { toggleWholeMap(); return; }
+  if (k === 'v' && !e.repeat) { toggle3d(); return; }
   if (k === '-' || k === '_') { zoomBy(1 / 1.25); return; }
   if (k === '=' || k === '+') { zoomBy(1.25); return; }
   const ps = me();
@@ -384,6 +385,21 @@ canvas.addEventListener('wheel', (e) => {
 $('zoomIn').addEventListener('click', () => zoomBy(1.25));
 $('zoomOut').addEventListener('click', () => zoomBy(1 / 1.25));
 $('zoomFit').addEventListener('click', toggleWholeMap);
+// ---------------------------------------------------------------- 2D / 3D view
+R.stageFor = () => ({ stage: $('stage'), cv: canvas });
+function paint3dBtn() {
+  const b = $('view3dBtn');
+  b.textContent = R.mode3d ? '2D' : '3D';
+  b.title = R.mode3d ? 'Back to the classic 2D view (V)' : 'Switch to the 3D view (V)';
+}
+function toggle3d(on = !R.mode3d) {
+  R.set3d(on);
+  if (on && !R.mode3d) toast('3D view is not available on this device');
+  try { localStorage.setItem('ashen-view', R.mode3d ? '3d' : '2d'); } catch { /* storage unavailable */ }
+  paint3dBtn();
+  dirty = true;
+}
+$('view3dBtn').addEventListener('click', () => toggle3d());
 
 /** Fullscreen: the browser's own when it allows (Esc leaves), and the full-screen layout either way. */
 function toggleFullscreen(on = !document.body.classList.contains('fs')) {
@@ -874,8 +890,9 @@ function placeAimTag(html: string, at: Pt | null) {
   if (!html || !at) { if (aimTagKey) { el.classList.remove('on'); aimTagKey = ''; } return; }
   const r = canvas.getBoundingClientRect();
   const stage = $('stage').getBoundingClientRect();
-  const sx = ((at.x - R.cam.x) * SC / BW) * r.width + r.left - stage.left;
-  const sy = ((at.y - R.cam.y) * SC / BH) * r.height + r.top - stage.top;
+  const bp = R.worldToBuffer(at);
+  const sx = (bp.x / BW) * r.width + r.left - stage.left;
+  const sy = (bp.y / BH) * r.height + r.top - stage.top;
   if (html !== aimTagKey) { el.innerHTML = html; aimTagKey = html; }
   el.classList.add('on');
   // Centred just under the aim point, kept inside the stage; flips above near the bottom edge.
@@ -1376,6 +1393,8 @@ function toWs(input: string): string {
 (async () => {
   await R.init(canvas);
   R.resize(canvas.clientWidth, canvas.clientHeight);
+  try { if (localStorage.getItem('ashen-view') === '3d') R.set3d(true); } catch { /* storage unavailable */ }
+  paint3dBtn();
   await document.fonts?.ready;
   title();
   loop();
