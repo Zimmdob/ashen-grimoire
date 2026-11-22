@@ -4,17 +4,30 @@ $ErrorActionPreference = 'Stop'
 $Host.UI.RawUI.WindowTitle = 'Installing Ashen Grimoire'
 $zip = Join-Path $PSScriptRoot 'AshenGrimoireApp.zip'
 $dest = Join-Path $env:LOCALAPPDATA 'Programs\Ashen Grimoire'
-if (-not (Test-Path $zip)) { Write-Host 'AshenGrimoireApp.zip is missing from this folder. Unzip the whole download first.' -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
-# close the game (and its link helper) if it is running
-Get-Process 'Ashen Grimoire' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith($dest) } | Stop-Process -Force -ErrorAction SilentlyContinue
-Write-Host 'Installing Ashen Grimoire (about a minute)...'
-for ($i = 0; $i -lt 30 -and (Test-Path $dest); $i++) {
-  try { Remove-Item $dest -Recurse -Force -ErrorAction Stop } catch { Start-Sleep -Milliseconds 500 }
+function Fail($msg) { Write-Host ''; Write-Host $msg -ForegroundColor Red; Read-Host 'Press Enter to close'; exit 1 }
+if (-not (Test-Path $zip)) { Fail 'AshenGrimoireApp.zip is missing from this folder. Unzip the whole download first.' }
+
+Write-Host 'Closing Ashen Grimoire if it is running...'
+# every copy of the game, its hidden helper processes, and its friend-link helper
+& taskkill.exe /F /T /IM 'Ashen Grimoire.exe' 2>&1 | Out-Null
+for ($i = 0; $i -lt 20; $i++) {
+  $left = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($dest, [StringComparison]::OrdinalIgnoreCase) })
+  if ($left.Count -eq 0) { break }
+  $left | Stop-Process -Force -ErrorAction SilentlyContinue
+  Start-Sleep -Milliseconds 500
 }
-New-Item -ItemType Directory -Force -Path $dest | Out-Null
+
+Write-Host 'Installing Ashen Grimoire (about a minute)...'
+$tmp = Join-Path $env:TEMP ('ag-install-' + [guid]::NewGuid().ToString('N'))
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest)
+try { [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $tmp) } catch { Fail ('Could not unpack the game: ' + $_.Exception.Message) }
+New-Item -ItemType Directory -Force -Path $dest | Out-Null
+# copy over the old version, retrying files that are briefly in use
+robocopy "$tmp" "$dest" /MIR /R:30 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+$code = $LASTEXITCODE
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
+if ($code -ge 8) { Fail 'Some game files are still in use. Restart your computer, then run this installer again.' }
+
 $exe = Join-Path $dest 'Ashen Grimoire.exe'
 $shell = New-Object -ComObject WScript.Shell
 foreach ($dir in @([Environment]::GetFolderPath('Desktop'), (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs'))) {

@@ -136,9 +136,10 @@ function Note($m) { Add-Content -Path $Log -Value ((Get-Date).ToString('s') + ' 
 try {
   Note "Updating Ashen Grimoire to $Sha. Waiting for the game to close..."
   for ($i = 0; $i -lt 60; $i++) { if (-not (Get-Process -Id $AppPid -ErrorAction SilentlyContinue)) { break }; Start-Sleep -Milliseconds 500 }
-  for ($i = 0; $i -lt 20; $i++) {
+  for ($i = 0; $i -lt 30; $i++) {
     $left = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($Dest, [StringComparison]::OrdinalIgnoreCase) })
     if ($left.Count -eq 0) { break }
+    if ($i -eq 6) { Note 'Closing leftover game processes...'; & taskkill.exe /F /T /IM 'Ashen Grimoire.exe' 2>&1 | Out-Null }
     if ($i -gt 6) { $left | Stop-Process -Force -ErrorAction SilentlyContinue }
     Start-Sleep -Milliseconds 500
   }

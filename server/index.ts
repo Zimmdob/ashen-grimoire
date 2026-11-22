@@ -179,6 +179,9 @@ for (const ip of lan) console.log(`Your companion opens: http://${ip}:${PORT}`);
 if (process.env.TUNNEL === '1') {
   const exe = process.env.CLOUDFLARED || 'cloudflared';
   const cf = spawn(exe, ['tunnel', '--no-autoupdate', '--url', `http://localhost:${PORT}`], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // the tunnel helper goes when the game goes, so it never keeps the game's files busy
+  const stopTunnel = () => { try { cf.kill(); } catch { /* already gone */ } };
+  (globalThis as { agStopTunnel?: () => void }).agStopTunnel = stopTunnel;
   let shown = false;
   const scan = (buf: Buffer) => {
     const m = String(buf).match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
@@ -192,7 +195,7 @@ if (process.env.TUNNEL === '1') {
   cf.stdout.on('data', scan);
   cf.stderr.on('data', scan);
   cf.on('error', () => console.log('Could not start cloudflared, so there is no public link. Same-network play still works.'));
-  if (process.env.AG_EMBEDDED) process.on('exit', () => cf.kill());
+  process.on('exit', stopTunnel);
   const stop = () => { cf.kill(); process.exit(0); };
   if (!process.env.AG_EMBEDDED) { process.on('SIGINT', stop); process.on('SIGTERM', stop); }
 }

@@ -75,4 +75,9 @@ else {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
   });
   app.on('window-all-closed', () => app.quit());
+  // Leave nothing behind: stop the friend-link helper, and make sure the process really ends.
+  app.on('will-quit', () => {
+    try { globalThis.agStopTunnel && globalThis.agStopTunnel(); } catch { /* ignore */ }
+    setTimeout(() => app.exit(0), 1500).unref();
+  });
 }
