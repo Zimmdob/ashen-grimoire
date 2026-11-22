@@ -239,7 +239,7 @@ canvas.addEventListener('pointermove', (e) => {
     if (panning || touchMode === 'look' || fingers.size > 1) {
       // dragging the map: move the camera the opposite way (two fingers move it half as fast each)
       const k = fingers.size > 1 ? 0.5 : 1;
-      R.camOff = { x: R.camOff.x - dx * k, y: R.camOff.y - dy * k };
+      R.pan(-dx * k, -dy * k);
       if (Math.hypot(e.clientX - f.sx, e.clientY - f.sy) > 12) { panning = true; clearTimeout(holdTimer); }
       return;
     }
@@ -339,6 +339,7 @@ window.addEventListener('keydown', (e) => {
   if ($('overlay').classList.contains('on')) return;
   if (k === 'z' && !e.repeat) { toggleWholeMap(); return; }
   if (k === 'v' && !e.repeat) { toggle3d(); return; }
+  if ((k === 'q' || k === 'e') && R.mode3d) { keys.add(k); return; }
   if (k === '-' || k === '_') { zoomBy(1 / 1.25); return; }
   if (k === '=' || k === '+') { zoomBy(1.25); return; }
   const ps = me();
@@ -391,6 +392,7 @@ function paint3dBtn() {
   const b = $('view3dBtn');
   b.textContent = R.mode3d ? '2D' : '3D';
   b.title = R.mode3d ? 'Back to the classic 2D view (V)' : 'Switch to the 3D view (V)';
+  for (const id of ['rotL', 'rotR']) $(id).style.display = R.mode3d ? '' : 'none';
 }
 function toggle3d(on = !R.mode3d) {
   R.set3d(on);
@@ -400,6 +402,20 @@ function toggle3d(on = !R.mode3d) {
   dirty = true;
 }
 $('view3dBtn').addEventListener('click', () => toggle3d());
+// turn the 3D camera: tap for an eighth of a turn, hold to keep turning; double-click either to face north again
+for (const [id, dir] of [['rotL', -1], ['rotR', 1]] as const) {
+  const b = $(id);
+  let hold = 0, timer = 0;
+  const stop = () => { clearInterval(timer); timer = 0; };
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    hold = performance.now();
+    R.rotate(dir * 45);
+    timer = window.setInterval(() => { if (performance.now() - hold > 350) R.rotate(dir * 3); }, 30);
+  });
+  for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) b.addEventListener(ev, stop);
+  b.addEventListener('dblclick', () => R.resetRotation());
+}
 
 /** Fullscreen: the browser's own when it allows (Esc leaves), and the full-screen layout either way. */
 function toggleFullscreen(on = !document.body.classList.contains('fs')) {
@@ -912,10 +928,13 @@ function loop() {
   lastFrame = nowT;
   walkTick(dt);
   const pan = 9;
-  if (keys.has('w') || keys.has('arrowup')) R.camOff.y -= pan;
-  if (keys.has('s') || keys.has('arrowdown')) R.camOff.y += pan;
-  if (keys.has('a') || keys.has('arrowleft')) R.camOff.x -= pan;
-  if (keys.has('d') || keys.has('arrowright')) R.camOff.x += pan;
+  if (keys.has('w') || keys.has('arrowup')) R.pan(0, -pan);
+  if (keys.has('s') || keys.has('arrowdown')) R.pan(0, pan);
+  if (keys.has('a') || keys.has('arrowleft')) R.pan(-pan, 0);
+  if (keys.has('d') || keys.has('arrowright')) R.pan(pan, 0);
+  // hold Q / E to keep turning the 3D camera
+  if (R.mode3d && keys.has('q')) R.rotate(-2.2);
+  if (R.mode3d && keys.has('e')) R.rotate(2.2);
   if (!W) return;
   if (!R.blocked) {
     const k = `${W.beat}|${W.phase}`;

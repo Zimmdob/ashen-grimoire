@@ -26,6 +26,10 @@ export interface UnitDraw {
   tex: HTMLCanvasElement; white: HTMLCanvasElement; outlineTex: HTMLCanvasElement;
   outline: number | null; flash: number; alpha: number; ghost: number;
 }
+/** An effect in flight (projectile, beam, lightning, column, burst...), t from 0 to 1. */
+export interface Fx3 { kind: string; x: number; y: number; x2: number; y2: number; r: number; color: number; t: number; seed: number }
+/** A spell going off: its colour and where it lands. */
+export interface Spell3 { pts: Pt[]; color: number; t: number; seed: number }
 export interface Light3 { x: number; y: number; h: number; r: number; i: number; color: number }
 export interface Frame3 {
   /** Centre of the view on the ground and the size of ground the 2D view would show. */
@@ -36,6 +40,10 @@ export interface Frame3 {
   focus: Pt[];
   torches: Pt[];
   reveal: boolean;
+  /** Camera turn around the view centre, radians (0 = looking north). */
+  yaw: number;
+  fx: Fx3[];
+  spells: Spell3[];
   decalDirty: boolean;
   liquidDirty: boolean;
 }
@@ -76,6 +84,18 @@ export class View3D {
   /** Pixels on screen per world unit near the middle of the view (sizes HUD text and bars). */
   private lights: Light3[] = [];
   private ambLevel = 0.3;
+  private yaw = 0;
+  private lastFadeYaw = 0;
+  private glow: THREE.Sprite[] = [];
+  private gi = 0;
+  private glowTex = (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 32;
+    const g = c.getContext('2d')!;
+    const gr = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+    gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.35, 'rgba(255,255,255,0.6)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 32, 32);
+    return new THREE.CanvasTexture(c);
+  })();
 
   constructor(stage: HTMLElement, before: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -242,7 +262,8 @@ export class View3D {
       }, (p) => new THREE.Color(pal.top).offsetHSL((h(p.x, p.y, 9) - 0.5) * 0.04, 0.05, 0.04 + h(p.x, p.y, 10) * 0.08));
     } else {
       const side = new THREE.MeshLambertMaterial({ map: this.tex(brickCanvas(pal)) });
-      const top = new THREE.MeshLambertMaterial({ color: new THREE.Color(pal.top).lerp(new THREE.Color(pal.faceHi), 0.6) });
+      const topCol = new THREE.Color(pal.top).lerp(new THREE.Color(pal.faceHi), 0.6);
+      const top = new THREE.MeshLambertMaterial({ color: topCol, emissive: topCol.clone().multiplyScalar(0.35) });
       // Only walls beside the floor get raised; the void beyond stays black, like the 2D view.
       family(new THREE.BoxGeometry(TILE, WALL_H, TILE), [side, side, top, top, side, side], edge, (p, m) => compose(m, p.x * TILE + 16, WALL_H / 2, p.y * TILE + 16, 1, 1, 1));
     }
@@ -294,7 +315,9 @@ export class View3D {
     // camera: look at the same patch of ground the 2D view would show, from the south and above
     const tanV = Math.tan(((VFOV / 2) * Math.PI) / 180), tanH = tanV * this.camera.aspect;
     const D = Math.max(f.viewW / (2 * tanH), (f.viewH * Math.sin(PITCH)) / (2 * tanV)) * 0.92;
-    this.camera.position.set(f.cx, D * Math.sin(PITCH), f.cy + D * Math.cos(PITCH));
+    this.yaw = f.yaw;
+    const hz = D * Math.cos(PITCH);
+    this.camera.position.set(f.cx + Math.sin(f.yaw) * hz, D * Math.sin(PITCH), f.cy + Math.cos(f.yaw) * hz);
     this.camera.lookAt(f.cx, 0, f.cy);
     this.camera.near = Math.max(4, D * 0.2);
     this.camera.far = D * 4 + 400;
@@ -335,7 +358,8 @@ export class View3D {
       }
       const w = u.size * (u.flip ? -1 : 1);
       c.group.position.set(u.x, u.alive ? u.bob : 0.8, u.y);
-      c.group.rotation.x = u.alive ? 0 : -Math.PI / 2;
+      if (u.alive) c.group.rotation.set(0, f.yaw, 0);
+      else c.group.rotation.set(-Math.PI / 2, 0, 0);
       for (const m of [c.main, c.flash, c.ghost]) m.scale.set(w, u.alive ? u.size * LIFT : u.size, 1);
       c.outline.scale.set(w * (18 / 16), (u.alive ? u.size * LIFT : u.size) * (18 / 16), 1);
       const lit = this.litAt(u.x, u.y);
@@ -353,7 +377,8 @@ export class View3D {
     for (const id of [...this.cards.keys()]) if (!seen.has(id)) this.dropCard(id);
 
     // walls just south of the spellwrights (and whatever you're pointing at) turn see-through
-    if (this.frameN % 4 === 0) this.fadeWalls(f.focus);
+    if (this.frameN % 4 === 0 || Math.abs(f.yaw - this.lastFadeYaw) > 0.05) { this.lastFadeYaw = f.yaw; this.fadeWalls(f.focus); }
+    this.drawEffects(f.fx, f.spells);
 
     // torch flames
     if (f.torches.length !== this.flameCount) {
@@ -379,10 +404,13 @@ export class View3D {
   private fadeWalls(focus: Pt[]) {
     const tall = this.biome.style === 'forest' ? 3 : 2;
     const want = new Set<number>();
+    // "in front" means between the body and the camera, whichever way the camera is turned
+    const cdx = Math.sin(this.yaw), cdy = Math.cos(this.yaw), rx = Math.cos(this.yaw), ry = -Math.sin(this.yaw);
     for (const w of this.walls) w.tiles.forEach((p, i) => {
       for (const fp of focus) {
-        const fx = Math.floor(fp.x / TILE), fy = Math.floor(fp.y / TILE);
-        if (Math.abs(p.x - fx) <= 2 && p.y - fy >= 0 && p.y - fy <= tall) { want.add(i * 64 + this.walls.indexOf(w)); break; }
+        const dx = p.x + 0.5 - fp.x / TILE, dy = p.y + 0.5 - fp.y / TILE;
+        const fwd = dx * cdx + dy * cdy, side = dx * rx + dy * ry;
+        if (fwd >= -0.6 && fwd <= tall + 0.6 && Math.abs(side) <= 2.3) { want.add(i * 64 + this.walls.indexOf(w)); break; }
       }
     });
     const zero = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -400,6 +428,125 @@ export class View3D {
     this.fadedNow = want;
   }
 
+  // ------------------------------------------------------------------ effects that rise off the floor
+  /** One glowing mote (additive), drawn from a pool so effects never allocate mid-fight. */
+  private dot(x: number, y: number, h: number, size: number, color: number, alpha: number) {
+    if (alpha <= 0.01 || this.gi > 900) return;
+    let s = this.glow[this.gi];
+    if (!s) {
+      s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false, fog: false }));
+      s.renderOrder = 15;
+      this.scene.add(s);
+      this.glow.push(s);
+    }
+    s.visible = true;
+    s.position.set(x, h, y);
+    s.scale.set(size, size, 1);
+    const m = s.material;
+    m.color.set(color);
+    m.opacity = Math.min(1, alpha);
+    this.gi++;
+  }
+  /** A glowing streak between two points in the air. */
+  private streak(ax: number, ay: number, ah: number, bx: number, by: number, bh: number, size: number, color: number, alpha: number, core = true) {
+    const L = Math.hypot(bx - ax, by - ay, bh - ah);
+    const n = Math.max(1, Math.min(60, Math.ceil(L / (size * 0.45))));
+    for (let i = 0; i <= n; i++) {
+      const k = i / n, x = ax + (bx - ax) * k, y = ay + (by - ay) * k, h = ah + (bh - ah) * k;
+      this.dot(x, y, h, size, color, alpha * 0.55);
+      if (core && i % 2 === 0) this.dot(x, y, h, size * 0.35, 0xffffff, alpha * 0.6);
+    }
+  }
+
+  private drawEffects(fx: Fx3[], spells: Spell3[]) {
+    this.gi = 0;
+    const now = performance.now();
+    const rnd = (n: number) => { const v = Math.sin(n * 12.9898) * 43758.5453; return v - Math.floor(v); };
+    for (const f of fx) {
+      const t = Math.max(0, Math.min(1, f.t)), a = 1 - t;
+      switch (f.kind) {
+        case 'proj': {
+          // a bolt flying at chest height with a fading tail
+          for (let i = 0; i < 6; i++) {
+            const k = Math.max(0, t - i * 0.04);
+            const x = f.x + (f.x2 - f.x) * k, y = f.y + (f.y2 - f.y) * k;
+            this.dot(x, y, 22, 16 - i * 2, f.color, 1 - i * 0.15);
+          }
+          this.dot(f.x + (f.x2 - f.x) * t, f.y + (f.y2 - f.y) * t, 22, 6, 0xffffff, 1);
+          break;
+        }
+        case 'lob': {
+          // an arcing throw that really goes up and comes down
+          for (let i = 0; i < 5; i++) {
+            const k = Math.max(0, t - i * 0.035);
+            const x = f.x + (f.x2 - f.x) * k, y = f.y + (f.y2 - f.y) * k, h = 18 + Math.sin(Math.PI * k) * 110;
+            this.dot(x, y, h, 18 - i * 2.5, f.color, 1 - i * 0.18);
+          }
+          break;
+        }
+        case 'line': this.streak(f.x, f.y, 18, f.x2, f.y2, 18, 14, f.color, a); break;
+        case 'bolt': {
+          // lightning: a jagged path in the air that flickers
+          const n = 8;
+          let px = f.x, py = f.y, ph = 70;
+          for (let i = 1; i <= n; i++) {
+            const k = i / n, j = i === n ? 0 : (rnd(f.seed + i + Math.floor(now / 50)) - 0.5);
+            const x = f.x + (f.x2 - f.x) * k + j * 22, y = f.y + (f.y2 - f.y) * k - j * 16, h = 70 - k * 52 + j * 18;
+            this.streak(px, py, ph, x, y, i === n ? 14 : h, 9, f.color, a);
+            px = x; py = y; ph = h;
+          }
+          break;
+        }
+        case 'column': {
+          // a pillar of light from the sky
+          const grow = Math.min(1, t * 2.2), top = 170 * (0.3 + 0.7 * grow);
+          this.streak(f.x, f.y, 0, f.x, f.y, top, 30, f.color, a * 0.8, false);
+          this.streak(f.x, f.y, 0, f.x, f.y, top + 20, 10, 0xffffff, a * 0.9, false);
+          break;
+        }
+        case 'burst': {
+          // sparks thrown up and out, falling back
+          for (let i = 0; i < 14; i++) {
+            const ang = (i / 14) * Math.PI * 2 + f.seed;
+            const sp = 22 + (i % 4) * 9;
+            const x = f.x + Math.cos(ang) * sp * t * 1.4, y = f.y + Math.sin(ang) * sp * t * 1.4;
+            const h = 10 + (40 + (i % 3) * 18) * t - 70 * t * t;
+            this.dot(x, y, Math.max(2, h), 9, f.color, a);
+          }
+          this.dot(f.x, f.y, 14, 40 * (1 - t * 0.5), f.color, a * 0.7);
+          break;
+        }
+        case 'blink':
+          for (let i = 0; i < 10; i++) {
+            const ang = (i / 10) * Math.PI * 2 + t * 4;
+            this.dot(f.x + Math.cos(ang) * (8 + t * 26), f.y + Math.sin(ang) * (8 + t * 26), 6 + t * 60 + (i % 2) * 8, 9, f.color, a);
+          }
+          break;
+        case 'slash':
+          for (let i = 0; i < 9; i++) {
+            const ang = -2.2 + t * 2.6 + i * 0.14;
+            this.dot(f.x + Math.cos(ang) * 22, f.y + Math.sin(ang) * 10, 22 + Math.sin(ang) * 12, 10, f.color, a * (1 - i * 0.08));
+          }
+          break;
+        default: break; // rings stay painted on the floor
+      }
+    }
+    for (const sp of spells) {
+      const t = Math.max(0, Math.min(1, sp.t)), a = 1 - t;
+      for (const [pi, p] of sp.pts.slice(0, 8).entries()) {
+        // motes of the spell's colour rise from everything it touches
+        for (let i = 0; i < 7; i++) {
+          const ang = (i / 7) * Math.PI * 2 + sp.seed + pi;
+          const rr = 8 + ((i * 5) % 14);
+          this.dot(p.x + Math.cos(ang + t * 2) * rr, p.y + Math.sin(ang + t * 2) * rr, 6 + t * (60 + (i % 3) * 20), 9, sp.color, a * 0.9);
+        }
+        // and a brief flare as it lands
+        if (t < 0.35) this.streak(p.x, p.y, 0, p.x, p.y, 70 * (1 - t / 0.35) + 10, 18, sp.color, (1 - t / 0.35) * 0.7, false);
+      }
+    }
+    for (let i = this.gi; i < this.glow.length; i++) this.glow[i].visible = false;
+  }
+
   // ------------------------------------------------------------------ picking and projection
   /** The world point under a spot on screen (fractions of the canvas): a body if you're over one, else the floor. */
   pick(fx: number, fy: number): Pt {
@@ -413,7 +560,7 @@ export class View3D {
       const uv = hit.uv, img = (hit.object as THREE.Mesh<THREE.BufferGeometry, THREE.MeshBasicMaterial>).material.map?.image as HTMLCanvasElement | undefined;
       let solid = true;
       if (uv && img?.getContext) {
-        const fxp = hit.object.scale.x < 0 ? 1 - uv.x : uv.x;
+        const fxp = hit.object.scale.x < 0 ? 1 - uv.x : uv.x; // a flipped card reads its texture mirrored
         const px = Math.floor(fxp * img.width), py = Math.floor((1 - uv.y) * img.height);
         try { solid = img.getContext('2d')!.getImageData(Math.min(img.width - 1, px), Math.min(img.height - 1, py), 1, 1).data[3] > 40; } catch { solid = true; }
       }

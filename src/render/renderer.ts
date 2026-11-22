@@ -10,7 +10,7 @@ import type { Zone } from '../sim/cards';
 import { paintSpell, spellLook, type SpellFx } from './spellfx';
 import { buildSprites, wizardSprite, type SpriteSet } from './sprites';
 import { drawGrain, drawLava, drawMap, lightBlob } from './mapArt';
-import { HudGraphics, View3D, type Light3, type UnitDraw } from './view3d';
+import { HudGraphics, View3D, type Fx3, type Light3, type Spell3, type UnitDraw } from './view3d';
 
 // The renderer never decides anything. It replays the simulation's event outbox beat by beat,
 // so a whole enemy turn that resolved in a millisecond plays out as readable animation.
@@ -87,6 +87,9 @@ export class GameRenderer {
   // ---- 3D view: the Pixi canvas becomes an invisible floor decal (aim shapes, effects, markers)
   // that the 3D scene lays on the ground; characters, walls and light are drawn by View3D.
   mode3d = false;
+  /** 3D camera turn (radians); eases toward yawTarget. Always 0 in 2D. */
+  yaw = 0;
+  yawTarget = 0;
   private v3: View3D | null = null;
   private decalK = 1;
   private pixiSize = '';
@@ -245,6 +248,7 @@ export class GameRenderer {
       this.hudG = new HudGraphics(this.v3.ctx);
     }
     this.mode3d = on;
+    if (!on) { this.yaw = this.yawTarget = 0; }
     const cv = this.app.canvas as HTMLCanvasElement;
     // The game canvas stays on top (it still takes every click and touch) but turns invisible in 3D.
     cv.style.opacity = on ? '0' : '';
@@ -254,6 +258,18 @@ export class GameRenderer {
     this.pixiSize = '';
     if (on && this.snap && this.v3 && this.mapCanvas && this.lavaCanvas) this.v3.buildLevel(this.snap, this.mapCanvas, this.lavaCanvas, cv);
     this.applySize();
+  }
+
+  /** Turn the 3D camera by some degrees. */
+  rotate(deg: number) { if (this.mode3d) this.yawTarget += (deg * Math.PI) / 180; }
+  resetRotation() { this.yawTarget = Math.round(this.yaw / (Math.PI * 2)) * Math.PI * 2; }
+  /**
+   * Pan by a screen-direction amount in world units (x right, y down on screen).
+   * In 2D that's the map axes; in 3D it follows the camera's turn.
+   */
+  pan(dx: number, dy: number) {
+    const c = Math.cos(this.yaw), s = Math.sin(this.yaw);
+    this.camOff = { x: this.camOff.x + dx * c + dy * s, y: this.camOff.y - dx * s + dy * c };
   }
 
   private placeV3() {
@@ -621,6 +637,8 @@ export class GameRenderer {
     for (const f of this.fx) {
       const t = Math.max(0, Math.min(1, (now - f.t0) / f.dur));
       const a = 1 - t;
+      // in 3D these fly through the air instead (View3D); only rings stay on the floor
+      if (this.mode3d && f.kind !== 'ring') continue;
       switch (f.kind) {
         case 'ring': g.circle(f.x, f.y, f.r * (0.35 + 0.65 * t)).stroke({ width: 3, color: f.color, alpha: a }); break;
         case 'line': g.moveTo(f.x, f.y).lineTo(f.x2, f.y2).stroke({ width: 3, color: f.color, alpha: a * 0.9 }); break;
@@ -1016,7 +1034,7 @@ export class GameRenderer {
       const targeted = this.ov.targets.has(v.id);
       const hover = this.ov.hoverId === v.id && alive;
       units.push({
-        id: v.id, x: v.x, y: v.y, size: 32 * s, flip: v.flip, alive: v.s.alive,
+        id: v.id, x: v.x, y: v.y, size: 32 * s, flip: v.flip !== Math.cos(this.yaw) < 0, alive: v.s.alive,
         bob: alive && !UNITS[v.type].prop ? Math.sin(now / 320 + v.id) * 1.5 + 1.5 : 0,
         tex: cv(tex), white: cv(set.white), outlineTex: cv(set.outline),
         outline: targeted ? 0xffd24a : threat ? 0xff2a2a : hover ? 0xe9dcc0 : null,
@@ -1027,7 +1045,16 @@ export class GameRenderer {
       if (hover || targeted) focus.push(v);
     }
     if (this.ov.aim) focus.push(this.ov.first ?? this.ov.aim.to);
+    this.yaw += (this.yawTarget - this.yaw) * 0.16;
+    if (Math.abs(this.yawTarget - this.yaw) < 0.001) this.yaw = this.yawTarget;
+    const fx: Fx3[] = this.fx.map((f, i) => ({ kind: f.kind, x: f.x, y: f.y, x2: f.x2, y2: f.y2, r: f.r, color: f.color, t: (now - f.t0) / f.dur, seed: f.t0 % 97 + i }));
+    const spells: Spell3[] = [];
+    for (const f of this.spells) {
+      const look = spellLook(f.card);
+      if (look) spells.push({ pts: f.pts.length ? f.pts : [f], color: look.color, t: (now - f.t0) / f.dur, seed: f.seed });
+    }
     this.v3.frame({
+      yaw: this.yaw, fx, spells,
       cx: this.cam.x + VIEW_W / 2, cy: this.cam.y + VIEW_H / 2, viewW: VIEW_W, viewH: VIEW_H,
       units, lights: this.lights3, focus, torches: this.snap.torches, reveal: this.reveal,
       // the floor overlay re-uploads every frame while something on it moves, otherwise a few times a second
