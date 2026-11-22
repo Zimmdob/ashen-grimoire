@@ -37,6 +37,10 @@ export class NetTransport implements Transport {
   onApplied: (a: Action, r: ActionResult) => void = () => {};
   onError: (msg: string) => void = () => {};
   onLobby: (code: string, players: LobbyPlayer[], isHost: boolean, opts: WorldOptions, again: boolean) => void = () => {};
+  /** The host's game build and each player's, from the latest lobby message. */
+  serverBuild = '';
+  serverBuildTime = 0;
+  builds: Record<string, string> = {};
   private closing = false;
 
   connect(url: string, first: ClientMsg) {
@@ -59,6 +63,9 @@ export class NetTransport implements Transport {
       case 'lobby':
         this.localPid = m.you;
         if (m.again) this.world = null;
+        this.serverBuild = m.build ?? '';
+        this.serverBuildTime = m.buildTime ?? 0;
+        this.builds = m.builds ?? {};
         this.onLobby(m.code, m.players, m.host === m.you, m.opts ?? {}, !!m.again);
         break;
       case 'start': {

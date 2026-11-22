@@ -4,8 +4,8 @@ import type { Action, PlayerSetup, WorldOptions } from '../sim/types';
 // of the deterministic simulation and broadcasts the action itself. Every client replays it locally.
 
 export type ClientMsg =
-  | { t: 'host'; setup: Omit<PlayerSetup, 'pid'>; opts?: WorldOptions }
-  | { t: 'join'; code: string; setup: Omit<PlayerSetup, 'pid'> }
+  | { t: 'host'; setup: Omit<PlayerSetup, 'pid'>; opts?: WorldOptions; build?: string }
+  | { t: 'join'; code: string; setup: Omit<PlayerSetup, 'pid'>; build?: string }
   | { t: 'start' }
   | { t: 'action'; a: Action }
   /** After the party falls (or wins): reopen the same room's lobby for a new descent together. */
@@ -14,7 +14,8 @@ export type ClientMsg =
 export type LobbyPlayer = PlayerSetup;
 
 export type ServerMsg =
-  | { t: 'lobby'; code: string; you: string; host: string; players: LobbyPlayer[]; opts: WorldOptions; again?: boolean }
+  /** `build` is the server's game build; `builds` is each player's, so the lobby can flag anyone out of date. */
+  | { t: 'lobby'; code: string; you: string; host: string; players: LobbyPlayer[]; opts: WorldOptions; again?: boolean; build?: string; buildTime?: number; builds?: Record<string, string> }
   | { t: 'start'; seed: number; players: LobbyPlayer[]; opts: WorldOptions; log: Action[] }
   | { t: 'action'; seq: number; a: Action }
   | { t: 'reject'; err: string; at?: Action['t'] }

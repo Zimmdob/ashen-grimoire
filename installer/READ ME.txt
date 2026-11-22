@@ -1,0 +1,19 @@
+ASHEN GRIMOIRE: how to install
+==============================
+
+1. Unzip this whole folder (right-click the zip > Extract All).
+2. Double-click "Install Ashen Grimoire".
+   Windows may say "Windows protected your PC". That is because the game is
+   made by friends, not a big company. Click "More info", then "Run anyway".
+3. The game opens. It is also on your Desktop and in the Start menu.
+
+That's it. The game updates itself from now on. When an update is ready you
+will see "Restart to update" on the title screen, or it installs the next
+time you close the game.
+
+Playing together
+----------------
+When a friend is hosting, their name shows on your title screen under
+"Friends playing now". Click "Join" and you are in their lobby.
+
+To host: click "Descend together", then "Host". Friends will see your game.

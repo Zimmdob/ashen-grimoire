@@ -1,0 +1,57 @@
+# Builds the Windows app on every push to main and publishes it as the latest release.
+# Installed copies of the game check this release and update themselves.
+name: Publish the Windows app
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: release
+  cancel-in-progress: true
+jobs:
+  windows-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+      - run: npm test
+      - name: Build stamp
+        id: stamp
+        run: |
+          echo "sha=$(git rev-parse --short=10 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "time=$(git log -1 --format=%ct)" >> "$GITHUB_OUTPUT"
+      - name: Fetch the tunnel helper (cloudflared) for friend links
+        run: curl -fsSL -o build/cloudflared.exe https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe
+      - name: Build the game and the app
+        env:
+          AG_BUILD_SHA: ${{ steps.stamp.outputs.sha }}
+          AG_BUILD_TIME: ${{ steps.stamp.outputs.time }}
+        run: |
+          npx vite build
+          npm run bundle:server
+          npx electron-builder --win dir --x64 --publish never
+      - name: Package
+        run: |
+          (cd release/win-unpacked && zip -qr -6 "$GITHUB_WORKSPACE/AshenGrimoireApp.zip" .)
+          mkdir -p "setup/Ashen Grimoire Setup"
+          cp AshenGrimoireApp.zip installer/* "setup/Ashen Grimoire Setup/"
+          (cd setup && zip -qr -0 "$GITHUB_WORKSPACE/AshenGrimoire-Setup.zip" "Ashen Grimoire Setup")
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.stamp.outputs.sha }}
+          TIME: ${{ steps.stamp.outputs.time }}
+        run: |
+          printf 'Ashen Grimoire build %s.\n\nNew players: download AshenGrimoire-Setup.zip, unzip it, and run "Install Ashen Grimoire".\n\n{"sha":"%s","time":%s}\n' "$SHA" "$SHA" "$TIME" > notes.md
+          gh release create "build-${{ github.run_number }}" AshenGrimoireApp.zip AshenGrimoire-Setup.zip \
+            --title "Ashen Grimoire (build ${{ github.run_number }})" --notes-file notes.md --latest
+          # keep only the newest five builds
+          gh release list --limit 100 --json tagName --jq '.[5:][].tagName' | while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done

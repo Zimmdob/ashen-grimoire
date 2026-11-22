@@ -8,6 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { applyAction, createWorld } from '../src/sim/game';
 import type { Action, PlayerSetup, World, WorldOptions } from '../src/sim/types';
 import { cleanLook, TRAITS } from '../src/sim/character';
+import { BUILD, sameBuild } from '../src/version';
 import { dailySeed, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../src/net/protocol';
 
 // Authoritative lockstep relay. It runs the exact same simulation as the clients, validates every
@@ -15,14 +16,16 @@ import { dailySeed, type ClientMsg, type LobbyPlayer, type ServerMsg } from '../
 
 const PORT = Number(process.argv[2] ?? process.env.PORT ?? 8787);
 
-interface Room { code: string; host: string; players: LobbyPlayer[]; sockets: Map<string, WebSocket>; world: World | null; seed: number; log: Action[]; opts: WorldOptions }
+interface Room { code: string; host: string; players: LobbyPlayer[]; builds: Map<string, string>; sockets: Map<string, WebSocket>; world: World | null; seed: number; log: Action[]; opts: WorldOptions }
 const rooms = new Map<string, Room>();
 let nextPid = 1;
 
 const code = () => Array.from({ length: 4 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random() * 24)]).join('');
 const send = (ws: WebSocket, m: ServerMsg) => ws.readyState === ws.OPEN && ws.send(JSON.stringify(m));
 const broadcast = (r: Room, m: ServerMsg) => r.sockets.forEach((ws) => send(ws, m));
-const lobby = (r: Room, again = false) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, again }));
+const lobby = (r: Room, again = false) => r.sockets.forEach((ws, pid) => send(ws, { t: 'lobby', code: r.code, you: pid, host: r.host, players: r.players, opts: r.opts, again, build: BUILD.sha, buildTime: BUILD.time, builds: Object.fromEntries(r.builds) }));
+/** Everyone whose game build differs from this server's (co-op is lockstep: one build per game). */
+const outOfDate = (r: Room) => r.players.filter((p) => !sameBuild(r.builds.get(p.pid), BUILD.sha)).map((p) => p.name);
 /** Clean a client's character sheet; the sim re-validates classes, origins and trait budgets itself. */
 function cleanSetup(pid: string, s: Partial<PlayerSetup> | undefined): PlayerSetup {
   const n = (v: unknown, max: number) => Math.max(0, Math.min(max, Math.floor(Number(v) || 0)));
@@ -48,7 +51,9 @@ function cleanOpts(o: WorldOptions | undefined): WorldOptions {
 // http://<host-ip>:8787. Run `npm run build` first (npm run play does both).
 const DIST = resolve(process.env.AG_DIST || resolve(process.cwd(), 'dist'));
 let tunnelUrl = '';
-const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json' };
+const TYPES: Record<string, string> = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff': 'font/woff', '.woff2': 'font/woff2', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.wav': 'audio/wav' };
+/** Sydney's voice lives outside the app files (it is private), so app updates never lose it. */
+const VOICE = process.env.AG_VOICE_DIR ? resolve(process.env.AG_VOICE_DIR) : '';
 const http = createServer((req, res) => {
   const url = decodeURIComponent((req.url ?? '/').split('?')[0]);
   // the game asks this to show the host their companion's link
@@ -57,6 +62,19 @@ const http = createServer((req, res) => {
     res.end(JSON.stringify({ url: tunnelUrl, lan: lanAddrs().map((ip) => `http://${ip}:${PORT}`) }));
     return;
   }
+  if (url === '/version') {
+    res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+    res.end(JSON.stringify(BUILD));
+    return;
+  }
+  if (VOICE && url.startsWith('/voice/')) {
+    const v = normalize(join(VOICE, url.slice(7)));
+    if (v.startsWith(VOICE) && existsSync(v) && !existsSync(join(DIST, url))) {
+      res.writeHead(200, { 'content-type': TYPES[extname(v)] ?? 'application/octet-stream' });
+      res.end(readFileSync(v));
+      return;
+    }
+  }
   let file = normalize(join(DIST, url));
   if (!file.startsWith(DIST)) { res.writeHead(403).end(); return; }
   if (existsSync(file) && statSync(file).isDirectory()) file = join(file, 'index.html');
@@ -64,7 +82,7 @@ const http = createServer((req, res) => {
     if (!existsSync(join(DIST, 'index.html'))) { res.writeHead(404, { 'content-type': 'text/plain' }).end('Build the game first: npm run build'); return; }
     file = join(DIST, 'index.html');
   }
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
+  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream', ...(file.endsWith('build.json') || file.endsWith('index.html') ? { 'cache-control': 'no-store' } : {}) });
   res.end(readFileSync(file));
 });
 http.on('error', (e: NodeJS.ErrnoException) => {
@@ -86,7 +104,7 @@ wss.on('connection', (ws) => {
       if (m.t === 'host') {
         let c = code();
         while (rooms.has(c)) c = code();
-        room = { code: c, host: pid, players: [], sockets: new Map(), world: null, seed: (Math.random() * 2 ** 31) | 0, log: [], opts: cleanOpts(m.opts) };
+        room = { code: c, host: pid, players: [], builds: new Map(), sockets: new Map(), world: null, seed: (Math.random() * 2 ** 31) | 0, log: [], opts: cleanOpts(m.opts) };
         rooms.set(c, room);
       } else {
         room = rooms.get(String(m.code).toUpperCase()) ?? null;
@@ -95,12 +113,15 @@ wss.on('connection', (ws) => {
         if (room.players.length >= 4) return send(ws, { t: 'error', err: 'That game is full.' });
       }
       room.players.push(cleanSetup(pid, m.setup));
+      room.builds.set(pid, typeof m.build === 'string' ? m.build.slice(0, 16) : 'dev');
       room.sockets.set(pid, ws);
       lobby(room);
       return;
     }
     if (!room) return;
     if (m.t === 'start' && pid === room.host && !room.world) {
+      const stale = outOfDate(room);
+      if (stale.length) return send(ws, { t: 'error', err: `Not everyone is on the same version yet: ${stale.join(', ')}. Their game updates itself; wait a moment and try again.` });
       if (room.opts.daily) room.seed = dailySeed();
       room.world = createWorld(room.seed, room.players, room.opts);
       room.world.events.length = 0;
@@ -134,6 +155,7 @@ wss.on('connection', (ws) => {
     if (!room) return;
     room.sockets.delete(pid);
     room.players = room.players.filter((p) => p.pid !== pid);
+    room.builds.delete(pid);
     if (room.world) {
       const a: Action = { t: 'leave', pid };
       applyAction(room.world, a);

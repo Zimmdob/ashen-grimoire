@@ -13,7 +13,7 @@ import { UNITS, unitName } from './sim/units';
 import type { Action, Look, PlayerState, Pt, Stat, Unit, World } from './sim/types';
 import { AFFIXES, RUNES } from './sim/runes';
 import { LocalTransport, NetTransport, type Transport } from './net/transport';
-import { dailySeed, DEFAULT_SERVER } from './net/protocol';
+import { dailySeed, DEFAULT_SERVER, type LobbyPlayer } from './net/protocol';
 import { BIOMES } from './sim/biomes';
 import { CLASSES, GEAR, INSCRIBE_COST, LEARN_COST, MAT_IDS, MAT_NAMES, MUTATIONS, ORIGINS, RECIPES, TRAITS } from './sim/character';
 import { eventFor, SYDNEY_LOOK } from './sim/events';
@@ -23,6 +23,8 @@ let talk = { visit: '', asked: [] as string[], text: '', n: 0 };
 import { ACHIEVEMENTS, bankRun, buyUnlock, checkAchievements, CURSE_ASH, CURSES, meta, observe, runOptions, saveMeta, setupFor, UNLOCKS } from './ui/meta';
 import { openCreator, portrait, whoLine } from './ui/creator';
 import { GLOSSARY, glossCard, guideHtml } from './ui/glossary';
+import { BUILD, sameBuild } from './version';
+import { announce, HEARTBEAT_MS, openGames, withdraw, type Posting } from './net/board';
 import { cardIcon, SCHOOL_COLOR, SCHOOL_NAME } from './ui/icons';
 import { isMuted, play, setMuted } from './ui/sfx';
 import { music, STYLE_NAMES, type MusicStyle } from './ui/music';
@@ -1037,7 +1039,7 @@ function bindEndButtons() {
   const t = T;
   if (t instanceof NetTransport) {
     $('again').addEventListener('click', (e) => { (e.currentTarget as HTMLButtonElement).disabled = true; t.again(setupFor()); });
-    $('menu').addEventListener('click', () => { t.close(); title(); });
+    $('menu').addEventListener('click', () => { leaveBoard(); t.close(); title(); });
     return;
   }
   $('again').addEventListener('click', () => startSolo());
@@ -1080,12 +1082,13 @@ function title() {
     <p>The Ashen Reach: twelve regions, a dozen lords of the dark, and one spellbook. Forge every spell card by card, keep your lantern lit, and cross the Reach to the Hollow King.</p>
     ${charLine()}
     <div class="row"><button type="button" class="btn ember" id="solo">Begin the descent</button><button type="button" class="btn" id="coop">Descend together</button><button type="button" class="btn" id="char">Character</button></div>
+    <div class="opengames" id="openGames"></div>
     <div class="row"><button type="button" class="btn small" id="daily">Daily rite (${today}${dCurse ? `, ${esc(CURSES[dCurse].name)}` : ''})</button><button type="button" class="btn small" id="sanct">Sanctum · ${meta.ash} Ash</button><button type="button" class="btn small" id="codexB">Codex</button></div>
     ${curseHtml()}
     <ol class="howto">${coarse
       ? '<li>Hold a finger on the map to walk toward it, or tap the ground to walk there. Tap a body to inspect it. Drag with two fingers (or switch to Look) to pan.</li><li>Tap cards to forge a spell; they resolve left to right. Long-press a card to read it.</li><li>Tap the map to aim: the preview shows exactly what will happen. Then press Cast.</li><li>Foes outlined in red will strike you next turn. Codex (top right) holds the chronicle and help.</li>'
       : '<li>Hold right-click to walk toward the cursor; it spends stamina. WASD moves the camera.</li><li>Click cards (or press 1–0) to forge a spell. Cards resolve left to right: targeting cards widen who is hit, effect cards strike everything targeted so far.</li><li>Left-click within the violet ring to cast. The preview shows exactly what will happen.</li><li>Foes outlined in red will strike you next turn. Space ends your turn.</li>'}
-    <li>Between regions you make camp: cook what you gathered, craft, inscribe your spells, and vote on the road ahead.</li></ol>
+    <li>Between regions you make camp: craft with what you gathered, inscribe your spells, and vote on the road ahead.</li></ol>
     <p class="k">Runs: ${meta.runs} · Victories: ${meta.wins} · Deepest: ${meta.bestDepth ? `depth ${roman(meta.bestDepth)}` : 'none yet'}${meta.dailyBest[today] ? ` · Today's rite: depth ${roman(meta.dailyBest[today])}` : ''}</p></div>`);
   $('solo').addEventListener('click', () => startSolo());
   $('daily').addEventListener('click', () => startSolo(0, true));
@@ -1094,6 +1097,8 @@ function title() {
   $('sanct').addEventListener('click', sanctum);
   $('codexB').addEventListener('click', codex);
   bindCurses(title);
+  showOpenGames();
+  checkWebBuild();
 }
 
 function sanctum() {
@@ -1147,6 +1152,115 @@ function showFriendLink(el: HTMLElement | null) {
   poll();
 }
 
+// ---------------------------------------------------------------- versions and the game board
+interface AppBridge {
+  state: () => Promise<{ status: string; progress: number }>;
+  checkNow: () => Promise<{ status: string; progress: number }>;
+  restartToUpdate: () => Promise<void>;
+  onUpdate: (fn: (s: { status: string; progress: number }) => void) => void;
+}
+/** Present in the desktop app (see electron/preload.cjs); absent in a browser. */
+const agApp = (window as unknown as { agApp?: AppBridge }).agApp;
+
+/** What to tell a player whose game build differs from the host's. */
+function versionAdvice(hostTime: number): string {
+  if (hostTime && hostTime < BUILD.time) return 'The host is on an older version of the game. Their app updates itself when they restart it.';
+  return agApp ? 'The host has a newer version. Yours is updating to match…' : 'The host has a newer version. This page will refresh itself in a moment.';
+}
+/** Behind the host: the app fetches the update; a browser page reloads to pick up the new build. */
+function catchUpTo(hostTime: number) {
+  if (hostTime && hostTime < BUILD.time) return;
+  if (agApp) { agApp.checkNow().catch(() => {}); return; }
+  if (location.protocol === 'https:' && !hostedHere) setTimeout(() => checkWebBuild(true), 4000);
+}
+
+let boardTimer = 0;
+let boardPost: Omit<Posting, 't' | 'id'> | null = null;
+/** Hosting from this app: keep a note on the board so friends see a Join button. */
+function hostOnBoard(t: NetTransport, code: string, players: number) {
+  if (location.port !== '8787') return; // only the app hosts its own server
+  fetch('/tunnel').then((r) => r.json()).then((j: { url: string }) => {
+    if (!j.url) { setTimeout(() => { if (T === t) hostOnBoard(t, code, players); }, 3000); return; }
+    boardPost = { name: setupFor().name, url: j.url, code, build: BUILD.sha, status: t.world ? 'playing' : 'lobby', players };
+    announce(boardPost);
+    clearInterval(boardTimer);
+    boardTimer = window.setInterval(() => {
+      if (T !== t || !boardPost) { leaveBoard(); return; }
+      boardPost.status = t.world ? 'playing' : 'lobby';
+      announce(boardPost);
+    }, HEARTBEAT_MS);
+  }).catch(() => { /* no tunnel: friends can still use the link */ });
+}
+function leaveBoard() {
+  clearInterval(boardTimer);
+  if (boardPost) withdraw(boardPost);
+  boardPost = null;
+}
+window.addEventListener('pagehide', leaveBoard);
+
+/** Title screen: list friends' open games, refreshed while the title is showing. */
+let boardPoll = 0;
+function showOpenGames() {
+  const el = document.getElementById('openGames');
+  if (!el) return;
+  openGames().then((games) => {
+    if (!el.isConnected) return;
+    el.innerHTML = games.length
+      ? `<b>Friends playing now</b> ${games.map((g, i) => `<button type="button" class="btn ember small" data-jg="${i}">Join ${esc(g.name)}<small>${g.status === 'playing' ? 'in a run: you can join when it ends' : `${g.players} in the lobby`}</small></button>`).join('')}`
+      : '';
+    el.querySelectorAll<HTMLButtonElement>('[data-jg]').forEach((b) => {
+      const g = games[Number(b.dataset.jg)];
+      if (g.status === 'playing') b.disabled = true;
+      b.addEventListener('click', () => joinPosted(g));
+    });
+  });
+  clearTimeout(boardPoll);
+  boardPoll = window.setTimeout(showOpenGames, 30000);
+}
+/** Join a friend's game straight from the board: no link, no code to type. */
+function joinPosted(g: Posting) {
+  coopScreen();
+  $<HTMLInputElement>('url').value = g.url;
+  $<HTMLInputElement>('code').value = g.code;
+  $('join').click();
+}
+
+/** Browser page: if a newer build has been published, reload to it (only between runs). */
+function checkWebBuild(force = false) {
+  if (agApp || location.protocol !== 'https:' || hostedHere) return;
+  if (W && !force) return;
+  fetch('./build.json', { cache: 'no-store' }).then((r) => r.json()).then((b: { sha: string; time: number }) => {
+    if (b.sha && b.sha !== BUILD.sha && b.time > BUILD.time) location.reload();
+  }).catch(() => {});
+}
+setInterval(() => checkWebBuild(), 5 * 60 * 1000);
+
+/** Desktop app: a small bar when an update is downloading or ready. Never interrupts a run. */
+const updBar = document.createElement('div');
+updBar.id = 'updBar';
+document.body.appendChild(updBar);
+let updState = { status: 'idle', progress: 0 };
+function paintUpdate() {
+  const inRun = !!W && W.phase !== 'dead' && W.phase !== 'victory';
+  const s = updState;
+  const show = !inRun && (s.status === 'ready' || s.status === 'downloading');
+  updBar.classList.toggle('on', show);
+  if (!show) return;
+  const html = s.status === 'ready'
+    ? 'A new version of Ashen Grimoire is ready. <button type="button" class="btn small ember" id="updGo">Restart to update</button> <span class="k">(or it installs next time you close the game)</span>'
+    : `Downloading the new version… ${s.progress}%`;
+  if (updBar.dataset.html !== html) {
+    updBar.dataset.html = html;
+    updBar.innerHTML = html;
+    document.getElementById('updGo')?.addEventListener('click', () => { updBar.innerHTML = 'Updating… the game will open again in a few seconds.'; agApp?.restartToUpdate(); });
+  }
+}
+if (agApp) {
+  agApp.onUpdate((s) => { updState = s; paintUpdate(); });
+  agApp.state().then((s) => { updState = s; paintUpdate(); }).catch(() => {});
+  setInterval(paintUpdate, 2000);
+}
+
 function coopScreen() {
   const p = setupFor();
   const intro = location.port === '8787'
@@ -1168,17 +1282,22 @@ function coopScreen() {
     t.onLobby = (code, players, isHost, opts, again) => {
       if (again) W = null;
       const curses = (opts.curses ?? []).map((c) => CURSES[c]?.name ?? c).join(', ');
-      showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2>${again ? '<p><b>The party rises again.</b> Same companions, a fresh descent.</p>' : ''}<p>Share this code with your companions.${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
-        <div class="plist">${players.map((q) => `<span class="who small"><img alt="" src="${portrait(q.look as Look, 3)}"> ${esc(q.name)} <small>${esc(whoLine(q))}</small></span>`).join('<br>')}</div>
+      const stale = (q: LobbyPlayer) => !sameBuild(t.builds[q.pid], t.serverBuild);
+      const mine = !sameBuild(BUILD.sha, t.serverBuild);
+      showOverlay(`<div class="panel"><h2>Game ${esc(code)}</h2>${again ? '<p><b>The party rises again.</b> Same companions, a fresh descent.</p>' : ''}<p>${isHost ? 'Friends can join from their title screen (Join), or with the link and code below.' : 'You are in.'}${opts.daily ? " Today's daily rite." : ''}${curses ? ` Curses: ${esc(curses)}.` : ''}</p>
+        ${mine ? `<p class="vwarn" id="verMsg">${versionAdvice(t.serverBuildTime)}</p>` : ''}
+        <div class="plist">${players.map((q) => `<span class="who small"><img alt="" src="${portrait(q.look as Look, 3)}"> ${esc(q.name)} <small>${esc(whoLine(q))}</small>${stale(q) ? ' <b class="vtag">updating…</b>' : ''}</span>`).join('<br>')}</div>
         ${isHost ? '<p class="friend" id="friendLink2"></p>' : ''}
-        <div class="row">${isHost ? '<button type="button" class="btn ember" id="go">Begin</button>' : '<p>Waiting for the host to begin…</p>'}</div></div>`);
+        <div class="row">${isHost ? `<button type="button" class="btn ember" id="go" ${players.some(stale) ? 'disabled title="Waiting for everyone to be on the same version"' : ''}>Begin</button>` : '<p>Waiting for the host to begin…</p>'}</div></div>`);
       showFriendLink(document.getElementById('friendLink2'));
       document.getElementById('go')?.addEventListener('click', () => t.startGame());
+      if (mine) catchUpTo(t.serverBuildTime);
+      if (isHost) hostOnBoard(t, code, players.length);
     };
     const daily = $<HTMLInputElement>('dly').checked;
     const url = toWs($<HTMLInputElement>('url').value);
     try { localStorage.setItem('ashen-server', $<HTMLInputElement>('url').value.trim()); } catch { /* storage unavailable */ }
-    t.connect(url, host ? { t: 'host', setup: p, opts: runOptions(daily) } : { t: 'join', code: $<HTMLInputElement>('code').value.trim().toUpperCase(), setup: p });
+    t.connect(url, host ? { t: 'host', setup: p, opts: runOptions(daily), build: BUILD.sha } : { t: 'join', code: $<HTMLInputElement>('code').value.trim().toUpperCase(), setup: p, build: BUILD.sha });
   };
   showFriendLink(document.getElementById('friendLink'));
   $('host').addEventListener('click', () => go(true));

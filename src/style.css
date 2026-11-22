@@ -411,3 +411,18 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 #guide .panel.guide { background: linear-gradient(#1a110e, #110b09); border: 2px solid #5a4030; box-shadow: 0 10px 40px rgba(0, 0, 0, .8), inset 0 0 0 1px #2a1c14; padding: 16px 22px 22px; color: var(--parch); }
 #guide .gl-head { background: #1a110e; margin: -16px -22px 0; padding: 14px 22px 8px; top: -16px; border-bottom: 1px solid #3a2a2a; }
 @media (max-width: 760px) { #guide { padding: 0; } #guide .panel.guide { height: 100%; padding: 12px 14px 18px; } #guide .gl-head { margin: -12px -14px 0; padding: 12px 14px 8px; top: -12px; } #guide dl { grid-template-columns: 1fr; } }
+
+/* friends' open games on the title screen */
+.opengames:empty { display: none; }
+.opengames { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin: 10px auto 4px; padding: 8px 12px; max-width: 600px;
+  border: 1px solid #5a4030; background: rgba(40, 24, 12, .55); }
+.opengames > b { font: 20px 'Pirata One', serif; color: var(--gold); width: 100%; }
+.opengames .btn small { display: block; font-size: 13px; opacity: .8; }
+/* version notes in the co-op lobby */
+.vwarn { color: #ffd27a; }
+.vtag { color: #ffd27a; font: 15px 'VT323', monospace; font-weight: normal; }
+/* desktop app: update bar */
+#updBar { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 96; display: none; align-items: center; gap: 10px;
+  padding: 6px 12px; background: #1c1310; border: 2px solid #8a6a30; box-shadow: 0 4px 18px rgba(0, 0, 0, .7); color: var(--parch); font-size: 15px; }
+#updBar.on { display: flex; }
+#updBar .k { color: var(--dim); font-size: 13px; }

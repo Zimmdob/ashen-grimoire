@@ -1,4 +1,8 @@
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+
+const { buildInfo } = createRequire(import.meta.url)('./scripts/build-info.cjs');
+const BUILD = buildInfo();
 import { defineConfig, type Plugin } from 'vite';
 
 /**
@@ -33,9 +37,11 @@ self.addEventListener('fetch', (e) => {
 });
 `;
       this.emitFile({ type: 'asset', fileName: 'sw.js', source: sw });
+      // what this build is, so open pages and the desktop app can tell when a newer one is out
+      this.emitFile({ type: 'asset', fileName: 'build.json', source: JSON.stringify(BUILD) });
     },
   };
 }
 
 // base './' lets Electron load the built files straight from disk and GitHub Pages serve from /ashen-grimoire/.
-export default defineConfig({ base: './', plugins: [offlineCache()], build: { target: 'es2022', chunkSizeWarningLimit: 1500 } });
+export default defineConfig({ base: './', define: { __AG_BUILD__: JSON.stringify(BUILD) }, plugins: [offlineCache()], build: { target: 'es2022', chunkSizeWarningLimit: 1500 } });

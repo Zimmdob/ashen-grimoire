@@ -17,7 +17,7 @@
     "dist": "npm run build && electron-builder",
     "balance": "tsx scripts/balance.ts",
     "play": "vite build && tsx server/index.ts",
-    "bundle:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=electron/server.cjs --external:bufferutil --external:utf-8-validate --log-level=warning",
+    "bundle:server": "node scripts/bundle-server.cjs",
     "dist:win": "vite build && npm run bundle:server && electron-builder --win nsis --x64"
   },
   "dependencies": {
