@@ -15,7 +15,7 @@ function offlineCache(): Plugin {
     apply: 'build',
     generateBundle(_opts, bundle) {
       const files = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
-        // voice clips are private (not in the public repo), so only cache them when present
+        // Sydney's voice (only cached when present, so a checkout without it still builds)
         ...(existsSync('public/voice/sydney.wav') ? ['./voice/sydney.wav', './voice/sydney.json'] : []),
         ...Object.keys(bundle).map((f) => `./${f}`)];
       let h = 0;

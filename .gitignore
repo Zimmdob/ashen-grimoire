@@ -3,4 +3,3 @@ dist
 release
 build/cloudflared.exe
 electron/server.cjs
-public/voice/
