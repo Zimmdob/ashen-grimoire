@@ -139,7 +139,7 @@ export class GameRenderer {
     this.lightSprite.texture = this.lightRT;
     this.lightSprite.setSize(BW, BH);
     oldRT.destroy(true);
-    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
+    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.darkAlpha() });
     const old = this.grain.texture;
     this.grain.texture = Texture.from(drawGrain(BW, BH));
     old.destroy(true);
@@ -343,10 +343,19 @@ export class GameRenderer {
   }
 
   /** Re-render the static map and the list of glowing liquid tiles (after a level loads or terrain changes). */
+  /** Unlit darkness: early forests let daylight through; everywhere else is near black. */
+  private darkAlpha() {
+    const base = (BIOMES[this.snap?.biome ?? ''] ?? BIOMES.cellars).dark ?? 0.8;
+    return this.reveal ? Math.min(0.35, base) : base;
+  }
+  private darkShown = -1;
+
   private applyReveal() {
+    const a = this.darkAlpha();
+    if (a !== this.darkShown && this.dark) { this.darkShown = a; this.revealShown = this.reveal; this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: a }); return; }
     if (this.revealShown === this.reveal || !this.dark) return;
     this.revealShown = this.reveal;
-    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
+    this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.darkAlpha() });
   }
 
   private refreshMap() {

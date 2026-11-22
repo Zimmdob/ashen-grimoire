@@ -21,21 +21,39 @@ export interface BiomeDef {
   pal: { floor: string[]; top: string; face: string; faceHi: string; mortar: string; accent: string; torch: number };
   music: number;
   band: 0 | 1 | 2 | 3;
+  /** How the map is drawn: stone halls (default) or open forest (grass floors, trees for walls). */
+  style?: 'stone' | 'forest';
+  /** How dark the unlit floor is (0..1, default 0.8). Early forests let a little daylight through. */
+  dark?: number;
 }
 
 import { T_BLOOD, T_BOG, T_LAVA, T_WATER } from './constants';
 import type { PickupType } from './types';
 
 export const BIOMES: Record<string, BiomeDef> = {
+  greenwood: {
+    name: 'The Greenwood Verge', floors: ['Sunlit Glades', 'The Old Stag\u2019s Ring'], band: 0, music: 0, style: 'forest', dark: 0.5,
+    blurb: 'Where the road leaves the last village: birch woods, streams and late-summer light.', rule: 'Daylight through the leaves: lantern oil burns 30% slower.',
+    liquid: T_WATER, pools: [1, 3], ice: false, walls: 0.40, oilMul: 0.7, cold: false,
+    foes: ['boar', 'boar', 'wolf', 'xbow'], boss: 'stag', extraPickups: ['herb', 'herb', 'hp'],
+    pal: { floor: ['#2c3a1e', '#304022', '#34461f', '#29361b'], top: '#1f3318', face: '#4a3a24', faceHi: '#5e4a2e', mortar: '#13200e', accent: '#e8d36a', torch: 0xffe0a0 },
+  },
+  elderglen: {
+    name: 'The Elder Glen', floors: ['Firefly Hollow', 'The Thorn Heart'], band: 0, music: 0, style: 'forest', dark: 0.6,
+    blurb: 'An ancient oak wood at dusk. Fireflies drift between roots older than the kingdom.', rule: 'Fireflies light the glen: lantern oil burns 20% slower. Herbs grow thick.',
+    liquid: T_WATER, pools: [1, 2], ice: false, walls: 0.41, oilMul: 0.8, cold: false,
+    foes: ['thornling', 'thornling', 'boar', 'hag'], boss: 'thornmaw', extraPickups: ['herb', 'herb', 'herb'],
+    pal: { floor: ['#26301e', '#2a3520', '#222b1b', '#2e3923'], top: '#1a2a18', face: '#3e3020', faceHi: '#524028', mortar: '#0f1a0c', accent: '#c8ff7a', torch: 0xfff0a0 },
+  },
   cellars: {
-    name: 'The Bone Cellars', floors: ['The Ossuary', 'The Charnel Vault'], band: 0, music: 0,
+    name: 'The Bone Cellars', floors: ['The Ossuary', 'The Charnel Vault'], band: 1, music: 0,
     blurb: 'Ossuaries and candlelit skull walls under the ruined chapel.', rule: 'Bone piles everywhere: the dead are close at hand.',
     liquid: T_LAVA, pools: [1, 3], ice: false, walls: 0.43, oilMul: 1, cold: false,
     foes: ['ghoul', 'ghoul', 'xbow', 'spitter'], boss: 'warden', extraPickups: ['trap'],
     pal: { floor: ['#211b1a', '#251e1c', '#29211e', '#1e1918'], top: '#2a2228', face: '#3d3136', faceHi: '#4e3f44', mortar: '#18131a', accent: '#cfc4ad', torch: 0xff8a3a },
   },
   witchwood: {
-    name: 'The Witchwood', floors: ['Briar Paths', 'The Black Grove'], band: 1, music: 1,
+    name: 'The Witchwood', floors: ['Briar Paths', 'The Black Grove'], band: 1, music: 1, style: 'forest', dark: 0.78,
     blurb: 'A black forest at the surface. Fog rolls in and lanterns gutter.', rule: 'Fog: lantern oil burns 50% faster. Trees choke the paths.',
     liquid: T_WATER, pools: [1, 2], ice: false, walls: 0.40, oilMul: 1.5, cold: false,
     foes: ['wolf', 'wolf', 'hag', 'xbow', 'ghoul'], boss: 'mother', extraPickups: ['herb', 'herb', 'hp'],

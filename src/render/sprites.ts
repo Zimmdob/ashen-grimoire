@@ -162,6 +162,10 @@ const K = '#0a0809';
 const VARIANTS: Record<string, { from: string; p: Record<string, string> }> = {
   wolf: { from: 'beast', p: { k: K, f: '#5a5a62', F: '#7a7a84', e: '#ff4a2a', m: '#2a0a0a', d: '#3a3a40' } },
   hound: { from: 'beast', p: { k: K, f: '#8aa8c0', F: '#bfe0f0', e: '#9fe8ff', m: '#2a3a4a', d: '#5a7890' } },
+  boar: { from: 'beast', p: { k: K, f: '#5a3e26', F: '#8a6a40', e: '#ffd06a', m: '#e8e0c8', d: '#3a2816' } },
+  stag: { from: 'beast', p: { k: K, f: '#8a7a6a', F: '#c8b89a', e: '#e8ffb0', m: '#2a1a10', d: '#5a4a3a' } },
+  thornling: { from: 'imp', p: { k: K, h: '#2a3a14', i: '#4a6a24', e: '#e8ff7a', m: '#1a2a0a' } },
+  thornmaw: { from: 'golem', p: { k: K, g: '#3a2c1a', G: '#5a7a2a', e: '#c8ff7a' } },
   mother: { from: 'beast', p: { k: K, f: '#3a2a1a', F: '#6a5030', e: '#9cff5a', m: '#1a0a0a', d: '#2a1a10' } },
   mycelid: { from: 'golem', p: { k: K, g: '#6a4a7a', G: '#9a6aaa', e: '#7ae0c0' } },
   slag: { from: 'golem', p: { k: K, g: '#3a2a24', G: '#ff7a2a', e: '#ffd06a' } },

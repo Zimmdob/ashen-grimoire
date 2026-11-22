@@ -6,11 +6,13 @@
 //    that only creeps in when foes can reach you.
 // A look-ahead scheduler queues notes slightly in the future so timing stays steady.
 
-/** Which style plays: dreamwave in menus and camp with the dungeon below ('mixed'), or one style everywhere. */
+/** Which style plays: dreamwave everywhere, each place with its own tune (default); dreamwave in menus with the old dungeon synth below ('mixed'); or dungeon synth only. */
 export type MusicStyle = 'mixed' | 'dream' | 'dungeon';
-export const STYLE_NAMES: Record<MusicStyle, string> = { mixed: 'Mixed', dream: 'Dreamwave', dungeon: 'Dungeon synth' };
+export const STYLE_NAMES: Record<MusicStyle, string> = { dream: 'Dreamwave', mixed: 'Mixed', dungeon: 'Dungeon synth' };
 
-/** Dreamwave chords as semitones above the key root (voicings, lowest note first). Four bars each. */
+import { TUNES, tuneFor, type Texture, type Tune } from './dreamtunes';
+
+/** (Legacy) dreamwave chords; tunes now live in dreamtunes.ts. */
 const DREAM_PROGS: number[][][] = [
   [[-4, 3, 7, 10, 14], [-5, 2, 5, 9, 12], [-7, 0, 3, 7, 10], [-9, 0, 3, 7, 14]],   // VImaj9 · v9 · iv9 · III maj (drifts, never lands)
   [[0, 7, 10, 14, 15], [-2, 5, 9, 12, 14], [-4, 3, 7, 10, 12], [-7, 5, 8, 12, 15]], // i(add9) · VII6/9 · VImaj7 · iv11
@@ -54,8 +56,12 @@ class Score {
   private volume = 0.5;
   private enabled = true;
   private seed = 1;
-  private stylePref: MusicStyle = 'mixed';
-  private scene: 'menu' | 'dungeon' = 'menu';
+  private stylePref: MusicStyle = 'dream';
+  private scene: 'menu' | 'camp' | 'dungeon' = 'menu';
+  private region = 'title';
+  private tune: Tune = TUNES.title;
+  private dreamFilter!: BiquadFilterNode;
+  private wobbleDepth!: GainNode;
   private style: 'dream' | 'dungeon' = 'dream';
   private dungeonBus!: GainNode;
   private dreamBus!: GainNode;
@@ -69,7 +75,7 @@ class Score {
     try {
       this.volume = Number(localStorage.getItem('ashen-music-vol') ?? '0.5');
       this.enabled = localStorage.getItem('ashen-music') !== 'off';
-      const st = localStorage.getItem('ashen-music-style') as MusicStyle | null;
+      const st = localStorage.getItem('ashen-music-style2') as MusicStyle | null;
       if (st && st in STYLE_NAMES) this.stylePref = st;
     } catch { /* storage unavailable */ }
   }
@@ -109,10 +115,12 @@ class Score {
     tape.type = 'lowpass';
     tape.frequency.value = 4200;
     tape.Q.value = 0.4;
+    this.dreamFilter = tape;
     this.dreamBus.connect(tape).connect(this.master);
     // Tape wobble: a slow drift plus a gentle flutter, shared by every dreamwave oscillator's pitch.
     this.wobble = a.createGain();
     this.wobble.gain.value = 1;
+    this.wobbleDepth = this.wobble;
     for (const [hz, cents] of [[0.13, 9], [3.1, 2.5]]) {
       const l = a.createOscillator(), lg = a.createGain();
       l.frequency.value = hz; lg.gain.value = cents;
@@ -279,7 +287,7 @@ class Score {
 
   // ------------------------------------------------------------------ dreamwave voices
   private wantStyle(): 'dream' | 'dungeon' {
-    return this.stylePref === 'mixed' ? (this.scene === 'menu' ? 'dream' : 'dungeon') : this.stylePref;
+    return this.stylePref === 'mixed' ? (this.scene === 'dungeon' ? 'dungeon' : 'dream') : this.stylePref;
   }
 
   private startHiss() {
@@ -303,7 +311,7 @@ class Score {
     this.hiss = src;
   }
 
-  private dreamKey() { return 48 + (((this.mood.root - 48) % 6) + 6) % 6; }
+  private dreamKey() { return this.tune.root; }
 
   /** Wide, slow chorus pad: two detuned saws and a sine per note, breathing over a whole bar or two. */
   private dreamPad(t: number, chord: number[], dur: number) {
@@ -315,9 +323,12 @@ class Score {
     g.gain.linearRampToValueAtTime(0, t + dur * 1.25);
     const f = a.createBiquadFilter();
     f.type = 'lowpass';
-    f.frequency.setValueAtTime(700, t);
-    f.frequency.linearRampToValueAtTime(1500 + this.rnd() * 600, t + dur * 0.6);
-    f.frequency.linearRampToValueAtTime(800, t + dur * 1.2);
+    // bright places open the filter wide; dark ones keep the pad murky
+    const d = this.tune.dark;
+    const lo = 900 - d * 450, hi = 2600 - d * 1700;
+    f.frequency.setValueAtTime(lo, t);
+    f.frequency.linearRampToValueAtTime(hi + this.rnd() * 500 * (1 - d * 0.6), t + dur * 0.6);
+    f.frequency.linearRampToValueAtTime(lo + 100, t + dur * 1.2);
     f.connect(g);
     const key = this.dreamKey();
     chord.forEach((iv, n) => {
@@ -414,29 +425,194 @@ class Score {
     n.start(t);
   }
 
-  /** One eighth-note step of dreamwave (64 bpm: everything slow and floating). */
+  // ------------------------------------------------------------------ lead instruments
+  /** Breathy flute: a sine and a soft triangle with gentle vibrato and a puff of air at the start. */
+  private flute(t: number, m: number, vel: number, len: number) {
+    const a = this.ctx!;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.05 * vel, t + 0.09);
+    g.gain.setValueAtTime(0.045 * vel, t + len * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + len + 0.4);
+    const vib = a.createOscillator(), vg = a.createGain();
+    vib.frequency.value = 5.2; vg.gain.value = 9;
+    vib.connect(vg);
+    for (const [type, lvl] of [['sine', 1], ['triangle', 0.25]] as const) {
+      const o = a.createOscillator(), og = a.createGain();
+      o.type = type; o.frequency.value = midi(m); og.gain.value = lvl;
+      vg.connect(o.detune); this.wobble.connect(o.detune);
+      o.connect(og).connect(g);
+      o.start(t); o.stop(t + len + 0.5);
+    }
+    // breath
+    const n = a.createBufferSource(); n.buffer = this.noiseBuf(0.25);
+    const bf = a.createBiquadFilter(), bg = a.createGain();
+    bf.type = 'bandpass'; bf.frequency.value = midi(m) * 2; bf.Q.value = 2;
+    bg.gain.setValueAtTime(0.03 * vel, t); bg.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    n.connect(bf).connect(bg).connect(g);
+    n.start(t);
+    vib.start(t); vib.stop(t + len + 0.5);
+    this.out(g, 0.6, this.dreamBus);
+    g.connect(this.echo);
+  }
+
+  /** Music box / celesta: a pure tone with a bright, quickly fading partial. */
+  private musicBox(t: number, m: number, vel: number) {
+    const a = this.ctx!;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.06 * vel, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+    for (const [ratio, lvl, dec] of [[1, 1, 2.2], [4, 0.35, 0.35], [6.8, 0.12, 0.15]] as const) {
+      const o = a.createOscillator(), og = a.createGain();
+      o.type = 'sine'; o.frequency.value = midi(m) * ratio;
+      this.wobble.connect(o.detune);
+      og.gain.setValueAtTime(lvl, t); og.gain.exponentialRampToValueAtTime(0.0001, t + dec);
+      o.connect(og).connect(g);
+      o.start(t); o.stop(t + 2.3);
+    }
+    this.out(g, 0.7, this.dreamBus);
+    g.connect(this.echo);
+  }
+
+  /** Glass: two slightly detuned sines with a long shimmering tail (caves, ice, the sky). */
+  private glass(t: number, m: number, vel: number) {
+    const a = this.ctx!;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.045 * vel, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 4);
+    for (const det of [-7, 7]) {
+      const o = a.createOscillator();
+      o.type = 'sine'; o.frequency.value = midi(m + 12); o.detune.value = det;
+      this.wobble.connect(o.detune);
+      o.connect(g); o.start(t); o.stop(t + 4.1);
+    }
+    this.out(g, 0.9, this.dreamBus);
+    g.connect(this.echo);
+  }
+
+  /** Choir: an "ooh" from detuned saws through two vowel formants. For the darkest places. */
+  private choir(t: number, m: number, vel: number, len: number) {
+    const a = this.ctx!;
+    const g = a.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.03 * vel, t + len * 0.35);
+    g.gain.linearRampToValueAtTime(0.0001, t + len * 1.1);
+    const mix = a.createGain();
+    for (const [fq, q] of [[400, 6], [800, 8]] as const) { const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = fq; f.Q.value = q; mix.connect(f).connect(g); }
+    for (const det of [-12, 0, 12]) {
+      const o = a.createOscillator();
+      o.type = 'sawtooth'; o.frequency.value = midi(m); o.detune.value = det;
+      this.wobble.connect(o.detune);
+      o.connect(mix); o.start(t); o.stop(t + len * 1.15);
+    }
+    this.out(g, 0.95, this.dreamBus);
+  }
+
+  private lead(t: number, m: number, vel: number, eighth: number) {
+    switch (this.tune.lead) {
+      case 'flute': this.flute(t, m, vel, eighth * (1.5 + this.rnd() * 2)); break;
+      case 'musicbox': this.musicBox(t, m + 12, vel); break;
+      case 'glass': this.glass(t, m, vel); break;
+      case 'choir': this.choir(t, m - 12, vel, eighth * 6); break;
+      default: this.ePiano(t, m, vel);
+    }
+  }
+
+  // ------------------------------------------------------------------ background sounds
+  private nb = new Map<number, AudioBuffer>();
+  private noiseBuf(sec: number): AudioBuffer {
+    const key = Math.round(sec * 100);
+    let b = this.nb.get(key);
+    if (!b) {
+      const a = this.ctx!;
+      b = a.createBuffer(1, Math.max(1, Math.floor(a.sampleRate * sec)), a.sampleRate);
+      const d = b.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+      this.nb.set(key, b);
+    }
+    return b;
+  }
+  private tone(t: number, f0: number, f1: number, dur: number, lvl: number, type: OscillatorType = 'sine', wet = 0.6) {
+    const a = this.ctx!;
+    const o = a.createOscillator(), g = a.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(lvl, t + Math.min(0.02, dur * 0.2));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); this.out(g, wet, this.dreamBus);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  private noise(t: number, dur: number, freq: number, q: number, lvl: number, attack = 0.01, wet = 0.6, type: BiquadFilterType = 'bandpass') {
+    const a = this.ctx!;
+    const n = a.createBufferSource(); n.buffer = this.noiseBuf(Math.max(0.05, dur));
+    const f = a.createBiquadFilter(), g = a.createGain();
+    f.type = type; f.frequency.value = freq; f.Q.value = q;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(lvl, t + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    n.connect(f).connect(g); this.out(g, wet, this.dreamBus);
+    n.start(t); n.stop(t + dur + 0.05);
+  }
+  /** One step's chance at each of the place's background sounds. */
+  private textures(t: number, s: number, eighth: number) {
+    const r = () => this.rnd();
+    for (const tx of this.tune.textures as Texture[]) {
+      switch (tx) {
+        case 'birds': if (r() < 0.06) { const n = 2 + Math.floor(r() * 4), base = 2400 + r() * 1800; for (let i = 0; i < n; i++) this.tone(t + i * (0.07 + r() * 0.05), base * (0.9 + r() * 0.3), base * (1.15 + r() * 0.4), 0.06, 0.012, 'sine', 0.5); } break;
+        case 'crickets': if (s % 4 === 0 && r() < 0.5) for (let i = 0; i < 4; i++) this.tone(t + i * 0.045, 4600, 4500, 0.03, 0.004, 'sine', 0.3); break;
+        case 'fireflies': if (r() < 0.05) this.tone(t, 3200 + r() * 2000, 3200 + r() * 2000, 0.6, 0.004, 'sine', 0.9); break;
+        case 'owl': if (s % 64 === 24 && r() < 0.6) { this.tone(t, 420, 380, 0.35, 0.02, 'sine', 0.8); this.tone(t + 0.5, 410, 370, 0.5, 0.016, 'sine', 0.8); } break;
+        case 'drips': if (r() < 0.04) { const f = 1100 + r() * 900; this.tone(t, f * 1.6, f, 0.12, 0.018, 'sine', 0.9); } break;
+        case 'wind': if (s % 32 === 0) this.noise(t, eighth * 28, 500 + r() * 500, 0.8, 0.02 + this.tune.dark * 0.012, eighth * 10, 0.7); break;
+        case 'bubbles': if (r() < 0.05) { const f = 180 + r() * 160; this.tone(t, f, f * 2.2, 0.09, 0.02, 'sine', 0.4); } break;
+        case 'ticks': if (s % 2 === 0) this.noise(t, 0.03, s % 8 === 0 ? 2600 : 3600, 6, 0.012, 0.002, 0.3, 'bandpass'); break;
+        case 'bells': if (s % 32 === 16) { const f = midi(this.tune.root - 12); for (const [k, l] of [[1, 0.03], [2.4, 0.015], [5.95, 0.008]] as const) this.tone(t, f * k, f * k * 0.995, 5, l, 'sine', 0.95); } break;
+        case 'whispers': if (r() < 0.025) this.noise(t, 0.5 + r() * 0.6, 1800 + r() * 1400, 4, 0.006, 0.15, 0.9); break;
+        case 'heartbeat': if (s % 8 === 0 || s % 8 === 1) this.tone(t + (s % 8 === 1 ? 0.06 : 0), 70, 42, 0.22, s % 8 === 0 ? 0.12 : 0.08, 'sine', 0.15); break;
+        case 'shimmer': if (r() < 0.07) this.tone(t, 2800 + r() * 2600, 2800 + r() * 2600, 1.4, 0.005, 'sine', 1); break;
+        case 'embers': if (r() < 0.1) this.noise(t, 0.04, 3000 + r() * 2000, 3, 0.012, 0.002, 0.3); break;
+        case 'clank': if (s % 16 === 6 && r() < 0.5) { const f = 300 + r() * 120; this.tone(t, f, f * 0.99, 1.2, 0.012, 'square', 0.9); this.tone(t, f * 2.76, f * 2.7, 0.8, 0.006, 'sine', 0.9); } break;
+        case 'crackle': if (r() < 0.35) this.noise(t + r() * eighth, 0.02, 2500 + r() * 3000, 2, 0.01 + r() * 0.01, 0.001, 0.2); break;
+      }
+    }
+  }
+
+  /** One eighth-note step of the current place's tune. */
   private dreamStepAt(t: number, eighth: number) {
     const s = this.dreamStep++;
+    const tune = this.tune;
     const barStep = s % 8;
     const bar = Math.floor(s / 8);
-    const prog = DREAM_PROGS[Math.floor(bar / 8) % DREAM_PROGS.length];
+    const prog = tune.progs[Math.floor(bar / 8) % tune.progs.length];
     const chord = prog[Math.floor(bar / 2) % prog.length];
     const key = this.dreamKey();
-    if (s % 16 === 0) { this.dreamPad(t, chord, eighth * 16); this.dreamBass(t, key + chord[0] - 12, eighth * 16); }
-    if (s % 16 === 8 && this.rnd() < 0.5) this.dreamBass(t, key + chord[0] - 12, eighth * 8);
-    // Electric piano: a few unhurried notes per bar, stepping gently through the pentatonic, sometimes resting.
-    const want = barStep === 0 ? 0.55 : barStep === 3 ? 0.45 : barStep === 5 ? 0.3 : barStep % 2 === 0 ? 0.12 : 0.05;
-    if (this.rnd() < want) {
-      const stepBy = [-2, -1, -1, 1, 1, 2][Math.floor(this.rnd() * 6)];
-      this.lastLead = Math.max(2, Math.min(DREAM_PENTA.length - 1, this.lastLead + stepBy));
-      const m = key + 12 + DREAM_PENTA[this.lastLead];
-      this.ePiano(t + (this.rnd() < 0.3 ? eighth * 0.12 : 0), m, 0.6 + this.rnd() * 0.4);
-      if (barStep === 0 && this.rnd() < 0.35) this.ePiano(t + 0.03, key + 12 + chord[2], 0.35); // a soft chord tone underneath
+    if (s % 16 === 0) {
+      this.dreamPad(t, chord, eighth * 16);
+      this.dreamBass(t, key + chord[0] - 12, eighth * 16);
+      // the darkest places sit on a low drone under everything
+      if (tune.dark > 0.6) this.dreamBass(t, key - 24, eighth * 16);
     }
-    // When foes can reach you, a slow lo-fi pulse fades in under the haze.
+    if (s % 16 === 8 && this.rnd() < 0.5) this.dreamBass(t, key + chord[0] - 12, eighth * 8);
+    // The lead: a few unhurried notes per bar, stepping gently through the place's scale, sometimes resting.
+    const sc = tune.scale;
+    const base = barStep === 0 ? 0.55 : barStep === 3 ? 0.45 : barStep === 5 ? 0.3 : barStep % 2 === 0 ? 0.12 : 0.05;
+    if (this.rnd() < base * tune.busy) {
+      const stepBy = [-2, -1, -1, 1, 1, 2][Math.floor(this.rnd() * 6)];
+      this.lastLead = Math.max(1, Math.min(sc.length - 1, this.lastLead + stepBy));
+      const m = key + 12 + sc[this.lastLead];
+      this.lead(t + (this.rnd() < 0.3 ? eighth * 0.12 : 0), m, 0.6 + this.rnd() * 0.4, eighth);
+      if (barStep === 0 && this.rnd() < 0.3 && tune.lead !== 'choir') this.lead(t + 0.03, key + 12 + chord[2], 0.3, eighth);
+    }
+    this.textures(t, s, eighth);
+    // When foes can reach you, a slow lo-fi pulse fades in under the haze (heavier in darker places).
     if (this.intensity > 0.08) {
-      if (barStep === 0 || (barStep === 5 && this.intensity > 0.5)) this.dreamBeat(t, true, this.intensity);
-      if (barStep % 2 === 1 && this.intensity > 0.3) this.dreamBeat(t, false, this.intensity * (barStep === 3 || barStep === 7 ? 1 : 0.5));
+      const v = this.intensity * (0.8 + tune.dark * 0.5);
+      if (barStep === 0 || (barStep === 5 && this.intensity > 0.5) || (tune.dark > 0.7 && barStep === 4)) this.dreamBeat(t, true, v);
+      if (barStep % 2 === 1 && this.intensity > 0.3) this.dreamBeat(t, false, v * (barStep === 3 || barStep === 7 ? 1 : 0.5));
     }
   }
 
@@ -454,8 +630,14 @@ class Score {
     if (this.style === 'dream') {
       this.intensity += (this.targetIntensity - this.intensity) * 0.05;
       this.drumBus.gain.setTargetAtTime(0, a.currentTime, 0.4);
-      const eighth = 60 / 64 / 2;
-      while (this.nextTime < a.currentTime + 0.25) { this.dreamStepAt(this.nextTime, eighth); this.nextTime += eighth; }
+      const eighth = 60 / this.tune.bpm / 2;
+      while (this.nextTime < a.currentTime + 0.25) {
+        // change tune only on a phrase boundary, so the old one finishes its chord
+        const want = this.wantTune();
+        if (want !== this.tune && this.dreamStep % 8 === 0) { this.tune = want; this.dreamStep = 0; this.applyTuneColour(); }
+        this.dreamStepAt(this.nextTime, 60 / this.tune.bpm / 2);
+        this.nextTime += 60 / this.tune.bpm / 2;
+      }
       return;
     }
     // ease danger in and out
@@ -509,12 +691,27 @@ class Score {
     if (m !== this.mood && m !== this.pendingMood) this.pendingMood = m;
   }
 
-  /** 'menu' for title, Sanctum, camp and level-up; 'dungeon' while delving. */
-  setScene(sc: 'menu' | 'dungeon') { this.scene = sc; }
+  /** 'menu' for title and Sanctum; 'camp' for camp and level-up; 'dungeon' while delving. */
+  setScene(sc: 'menu' | 'camp' | 'dungeon') { this.scene = sc; }
+
+  /** Which region of the Reach we are in: picks that place's dreamwave tune. */
+  setRegion(id: string) { this.region = id; }
+
+  private wantTune(): Tune {
+    return this.scene === 'menu' ? TUNES.title : this.scene === 'camp' ? TUNES.camp : tuneFor(this.region);
+  }
+  /** Darker places get a murkier tape and a deeper warble. */
+  private applyTuneColour() {
+    const a = this.ctx;
+    if (!a) return;
+    const d = this.tune.dark;
+    this.dreamFilter.frequency.setTargetAtTime(5200 - d * 2600, a.currentTime, 2);
+    this.wobbleDepth.gain.setTargetAtTime(0.8 + d * 1.2, a.currentTime, 2);
+  }
 
   setStyle(st: MusicStyle) {
     this.stylePref = st;
-    try { localStorage.setItem('ashen-music-style', st); } catch { /* storage unavailable */ }
+    try { localStorage.setItem('ashen-music-style2', st); } catch { /* storage unavailable */ }
   }
   getStyle() { return this.stylePref; }
 

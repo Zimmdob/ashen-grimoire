@@ -83,7 +83,11 @@ export const UNITS: Record<string, UnitDef> = {
   voidmoth: { name: 'Void Moth', hp: 30, dmg: 15, range: 60, stam: 0, r: 10, ai: 'blink', budget: 1, desc: 'Blinks beside its prey each turn and bites.' },
   startouched: { name: 'Star-touched', hp: 60, dmg: 20, range: 350, stam: 220, r: 11, ai: 'pull', budget: 2, desc: 'Drags its prey through warped gravity from 350.' },
   shade: { name: 'Shade', hp: 30, dmg: 20, range: 60, stam: 420, r: 10, ai: 'melee', desc: 'Born where the light dies. Fire burns it double.' },
+  boar: { name: 'Tusked Boar', hp: 30, dmg: 10, range: 60, stam: 300, r: 11, ai: 'melee', budget: 1, desc: 'Bad-tempered and quick. Charges whoever is closest.' },
+  thornling: { name: 'Thornling', hp: 20, dmg: 8, range: 60, stam: 320, r: 9, ai: 'melee', budget: 1, hit: 'fetter', desc: 'A knot of living bramble. Its scratch fetters you, halving your stride next turn.' },
   // ---- bosses (one rule each)
+  stag: { name: 'The Old Stag', hp: 220, dmg: 22, range: 74, stam: 260, r: 18, ai: 'melee', boss: true, affixes: ['stalwart'], desc: 'Lord of the verge. Charges hard and cannot be shoved far.' },
+  thornmaw: { name: 'The Thornmaw', hp: 220, dmg: 14, range: 320, stam: 140, r: 18, ai: 'ranged', boss: true, hit: 'fetter', desc: 'An oak-heart grown teeth. Lashes roots from 320 that fetter.' },
   warden: { name: 'The Charnel Warden', hp: 300, dmg: 25, range: 74, stam: 150, r: 18, ai: 'warden', boss: true, desc: 'Every third turn it raises every corpse nearby. Shatter or claim the dead first.' },
   mother: { name: 'The Antlered Mother', hp: 320, dmg: 25, range: 74, stam: 170, r: 18, ai: 'mother', boss: true, desc: 'Takes no harm unless someone with a lit lantern stands within 260 of her. Calls wolves.' },
   bloom: { name: 'The Bloom', hp: 280, dmg: 20, range: 300, stam: 0, r: 20, ai: 'bloom', boss: true, desc: 'Rooted. Heals 15 every turn and buds a Mycelid every third turn.' },

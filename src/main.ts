@@ -562,7 +562,7 @@ const styleBtn = $('styleBtn');
 const paintStyle = () => { styleBtn.textContent = `Style: ${STYLE_NAMES[music.getStyle()]}`; };
 paintStyle();
 styleBtn.addEventListener('click', () => {
-  const order: MusicStyle[] = ['mixed', 'dream', 'dungeon'];
+  const order: MusicStyle[] = ['dream', 'mixed', 'dungeon'];
   music.setStyle(order[(order.indexOf(music.getStyle()) + 1) % order.length]);
   paintStyle();
   if (!music.isEnabled()) { music.setEnabled(true); syncMusicUi(); }
@@ -916,7 +916,8 @@ function loop() {
   if (frame % 2 === 0) updateOverlays();
   if (frame % 10 === 0) {
     music.setMood(biomeOf(W).music);
-    music.setScene(W.phase === 'camp' || W.phase === 'levelup' || W.phase === 'dead' || W.phase === 'victory' ? 'menu' : 'dungeon');
+    music.setRegion(W.run.region);
+    music.setScene(W.phase === 'camp' || W.phase === 'levelup' ? 'camp' : W.phase === 'dead' || W.phase === 'victory' ? 'menu' : 'dungeon');
     if (frame % 30 === 0) paintViewbar();
     if (frame % 60 === 0) {
       observe(W, me()?.cards ?? []);

@@ -20,7 +20,9 @@ export function drawMap(snap: LevelSnap): HTMLCanvasElement {
   const at = (x: number, y: number) => (x < 0 || y < 0 || x >= MW || y >= MH ? T_WALL : map[y][x]);
   const px = (x: number, y: number, col: string) => { g.fillStyle = col; g.fillRect(x, y, 1, 1); };
   const seed = snap.level;
-  const pal = (BIOMES[snap.biome] ?? BIOMES.cellars).pal;
+  const biome = BIOMES[snap.biome] ?? BIOMES.cellars;
+  const pal = biome.pal;
+  if (biome.style === 'forest') return drawForest(snap, c, g, at, px, seed, pal);
 
   for (let ty = 0; ty < MH; ty++)
     for (let tx = 0; tx < MW; tx++) {
@@ -81,6 +83,84 @@ export function drawMap(snap: LevelSnap): HTMLCanvasElement {
           g.fillRect(X + 11 - o, Y + 12, 1, 3);
           if (hash(tx, ty, seed + 3) > 0.7) { px(X + 6, Y + 13, pal.faceHi); px(X + 7, Y + 13, pal.faceHi); }
           if (hash(tx, ty, seed + 5) > 0.88) { px(X + 11, Y + 9, pal.accent); px(X + 11, Y + 10, pal.accent); }
+        }
+      }
+    }
+  return c;
+}
+
+/** Forest maps: grass and earth underfoot, wildflowers, and thick trees (canopy above, trunks and roots in front) for walls. */
+function drawForest(
+  snap: LevelSnap, c: HTMLCanvasElement, g: CanvasRenderingContext2D, at: (x: number, y: number) => number,
+  px: (x: number, y: number, col: string) => void, seed: number, pal: (typeof BIOMES)[string]['pal'],
+): HTMLCanvasElement {
+  const { MW, MH, map } = snap;
+  const flowers = ['#e8d36a', '#f0f0e0', '#c890ff', '#ff9a8a', pal.accent];
+  for (let ty = 0; ty < MH; ty++)
+    for (let tx = 0; tx < MW; tx++) {
+      const X = tx * 16, Y = ty * 16, t = map[ty][tx];
+      if (t !== T_WALL) {
+        // soft grass: base tone per tile, then blades in lighter and darker greens
+        const v = hash(tx, ty, seed);
+        g.fillStyle = pal.floor[Math.floor(v * pal.floor.length)];
+        g.fillRect(X, Y, 16, 16);
+        // worn earth paths here and there
+        const path = hash(Math.floor(tx / 3), Math.floor(ty / 3), seed + 21);
+        if (path > 0.7) { g.fillStyle = 'rgba(70,50,30,0.45)'; g.fillRect(X, Y, 16, 16); }
+        for (let i = 0; i < 14; i++) {
+          const bx = Math.floor(hash(tx * 31 + i, ty, seed + 2) * 16), by = Math.floor(hash(tx, ty * 31 + i, seed + 3) * 15);
+          px(X + bx, Y + by, i % 3 === 0 ? 'rgba(160,200,100,0.35)' : 'rgba(10,20,6,0.35)');
+          if (i % 2 === 0) px(X + bx, Y + by + 1, 'rgba(120,160,70,0.25)');
+        }
+        const d = hash(tx, ty, seed + 9);
+        if (d > 0.9) {
+          // a little clump of wildflowers
+          const col = flowers[Math.floor(hash(ty, tx, seed) * flowers.length)];
+          for (let i = 0; i < 3; i++) { const fx = X + 3 + Math.floor(hash(tx, i, seed) * 10), fy = Y + 3 + Math.floor(hash(i, ty, seed) * 10); px(fx, fy + 1, '#2a4a1a'); px(fx, fy, col); }
+        } else if (d > 0.84) {
+          // a mossy stone or a fallen twig
+          g.fillStyle = '#4a4a40'; g.fillRect(X + 6, Y + 8, 4, 3); g.fillStyle = '#5a7a3a'; g.fillRect(X + 6, Y + 8, 3, 1);
+        } else if (d > 0.8) { g.fillStyle = '#4a3420'; g.fillRect(X + 3, Y + 11, 8, 1); px(X + 8, Y + 10, '#4a3420'); }
+        if (t === T_ICE) { g.fillStyle = 'rgba(170,220,255,0.38)'; g.fillRect(X, Y, 16, 16); }
+        // shade under the canopy edge
+        if (at(tx, ty - 1) === T_WALL) { g.fillStyle = 'rgba(0,10,0,0.5)'; g.fillRect(X, Y, 16, 4); g.fillStyle = 'rgba(0,10,0,0.22)'; g.fillRect(X, Y + 4, 16, 3); }
+        if (isLiquid(t)) { g.fillStyle = t === T_LAVA ? '#3a0a04' : t === T_WATER ? '#0a1a2a' : t === T_BLOOD ? '#2a0408' : '#1a2008'; g.fillRect(X, Y, 16, 16); }
+      } else {
+        const below = at(tx, ty + 1) !== T_WALL;
+        const touches = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]].some(([dx, dy]) => at(tx + dx, ty + dy) !== T_WALL);
+        g.fillStyle = '#081006';
+        g.fillRect(X, Y, 16, 16);
+        if (!touches) {
+          // deep wood: just dark leaves
+          if (hash(tx, ty, seed + 4) > 0.6) { g.fillStyle = '#0e1a0b'; g.fillRect(X + 3, Y + 3, 9, 8); }
+          continue;
+        }
+        // canopy: overlapping leaf clumps in the wall's top colour
+        const h = below ? 9 : 16;
+        g.fillStyle = pal.top;
+        g.fillRect(X, Y, 16, h);
+        for (let i = 0; i < 6; i++) {
+          const cx = X + Math.floor(hash(tx * 7 + i, ty, seed + 5) * 14), cy = Y + Math.floor(hash(tx, ty * 7 + i, seed + 6) * (h - 3));
+          g.fillStyle = i % 2 ? 'rgba(120,170,70,0.28)' : 'rgba(0,0,0,0.3)';
+          g.fillRect(cx, cy, 3, 2); g.fillRect(cx + 1, cy - 1, 1, 1);
+        }
+        if (hash(tx, ty, seed + 7) > 0.85) { px(X + 5, Y + 3, pal.accent); px(X + 11, Y + 5, '#ff7a6a'); } // a berry or a blossom
+        if (below) {
+          // trunk and roots, lit from the clearing
+          const tw = 6 + Math.floor(hash(tx, ty, seed + 8) * 4), tx0 = X + 8 - Math.floor(tw / 2) + Math.floor((hash(ty, tx, seed) - 0.5) * 4);
+          g.fillStyle = pal.face;
+          g.fillRect(tx0, Y + 8, tw, 8);
+          g.fillStyle = pal.faceHi;
+          g.fillRect(tx0, Y + 8, 1, 8);
+          g.fillStyle = pal.mortar;
+          g.fillRect(tx0 + tw - 1, Y + 8, 1, 8);
+          for (let by = Y + 10; by < Y + 15; by += 3) px(tx0 + 2 + Math.floor(hash(by, tx, seed) * (tw - 3)), by, pal.mortar); // bark
+          // roots spreading onto the ground
+          g.fillStyle = pal.face;
+          g.fillRect(tx0 - 2, Y + 14, 2, 2); g.fillRect(tx0 + tw, Y + 14, 2, 2);
+          // leaves overhang the trunk top
+          g.fillStyle = pal.top;
+          g.fillRect(X, Y + 7, 16, 2);
         }
       }
     }
