@@ -85,7 +85,7 @@ export interface PlayerState {
   name: string;
   unitId: number;
   cards: string[];
-  /** Times each card has been cast this depth (drives expense scaling). */
+  /** Times each card has been cast this turn (drives expense scaling; cleared each turn). */
   uses: Record<string, number>;
   endedTurn: boolean;
   offer: string[];

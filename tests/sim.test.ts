@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { applyAction, enterCampForTest, createWorld, placeProblem, playerUnit, previewCast } from '../src/sim/game';
 import { CARD_IDS, CARDS } from '../src/sim/cards';
+import { spellCost } from '../src/sim/spell';
 import { predictThreats } from '../src/sim/ai';
 import { rand } from '../src/sim/rng';
 import type { Action, WizardClass, World } from '../src/sim/types';
@@ -446,5 +447,20 @@ describe('systems', () => {
     expect(previewCast(w, 'p1', ['cone', 'sever'], aim)!.zones.some((z) => z.k === 'cone')).toBe(true);
     expect(previewCast(w, 'p1', ['line', 'sever'], aim)!.zones.some((z) => z.k === 'beam')).toBe(true);
     expect(previewCast(w, 'p1', ['nova', 'sever'], aim)!.zones.some((z) => z.k === 'circle' && z.x === me.x)).toBe(true);
+  });
+
+  it('card expense rises within a turn and resets when the next turn begins', () => {
+    const w = createWorld(33, [{ pid: 'p1', name: 'A' }]);
+    const ps = w.players[0];
+    const me = playerUnit(w, ps);
+    if (w.phase === 'placing') applyAction(w, { t: 'place', pid: 'p1', x: me.x, y: me.y });
+    me.mana = 999; me.maxMana = 999;
+    const aim = { x: me.x + 40, y: me.y };
+    const base = spellCost(ps, ['sever']).mana;
+    applyAction(w, { t: 'cast', pid: 'p1', cards: ['sever'], x: aim.x, y: aim.y });
+    expect(spellCost(ps, ['sever']).mana).toBeGreaterThan(base);
+    applyAction(w, { t: 'endTurn', pid: 'p1' });
+    expect(w.phase).toBe('planning');
+    expect(spellCost(ps, ['sever']).mana).toBe(base);
   });
 });

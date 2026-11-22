@@ -15,8 +15,10 @@ import { drawGrain, drawLava, drawMap, lightBlob } from './mapArt';
 
 // Low-res buffer. Its shape follows the screen (landscape monitor or portrait phone); the short side stays 250.
 export let BW = 400, BH = 250;
-export const SC = 0.5;
+/** Buffer pixels per world unit. 0.5 at normal zoom; zooming in raises it, zooming out grows the buffer instead so art stays crisp. */
+export let SC = 0.5;
 let VIEW_W = BW / SC, VIEW_H = BH / SC;
+export const ZOOM_MAX = 2;
 
 interface View {
   id: number; type: string; x: number; y: number; r: number; mini: boolean; owner: string | null; s: UnitStatus;
@@ -74,20 +76,81 @@ export class GameRenderer {
   private lightSprite!: Sprite;
   private grain!: Sprite;
 
+  /** Canvas size on screen, in device pixels (caps how big the buffer may grow when zoomed out). */
+  private cssW = 640;
+  private cssH = 400;
+  /** 1 = normal; above 1 zooms in, below 1 zooms out (down to the whole map). */
+  zoom = 1;
+
   /** Match the buffer's shape to the canvas on screen (CSS pixels w × h). */
   resize(w: number, h: number) {
-    if (!this.lightRT || w < 10 || h < 10) return;
-    const aspect = Math.max(0.45, Math.min(2.4, w / h));
-    const nw = aspect >= 1 ? Math.round(250 * aspect) : 250;
-    const nh = aspect >= 1 ? 250 : Math.round(250 / aspect);
+    if (w < 10 || h < 10) return;
+    const dpr = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
+    this.cssW = w * dpr; this.cssH = h * dpr;
+    this.applySize();
+  }
+
+  /** The zoom at which the whole depth fits on screen. */
+  fitZoom(): number {
+    if (!this.snap) return 0.5;
+    const mapW = this.snap.MW * TILE, mapH = this.snap.MH * TILE;
+    const aspect = Math.max(0.45, Math.min(2.4, this.cssW / this.cssH));
+    const vw1 = 500 * Math.max(1, aspect), vh1 = 500 * Math.max(1, 1 / aspect);
+    return Math.max(0.15, Math.min(1, Math.min(vw1 / (mapW + 80), vh1 / (mapH + 80))));
+  }
+
+  /**
+   * Zoom, keeping the world point under `anchor` (buffer fractions fx, fy) where it is on screen.
+   * The camera jumps there at once rather than easing, so the map never swims under the cursor.
+   */
+  setZoom(z: number, anchor?: { fx: number; fy: number }) {
+    const nz = Math.max(Math.min(this.fitZoom(), 1), Math.min(ZOOM_MAX, z));
+    if (Math.abs(nz - this.zoom) < 1e-4) return;
+    const fx = anchor?.fx ?? 0.5, fy = anchor?.fy ?? 0.5;
+    const ax = this.cam.x + fx * VIEW_W, ay = this.cam.y + fy * VIEW_H;
+    this.zoom = nz;
+    this.applySize();
+    const cx = ax - fx * VIEW_W, cy = ay - fy * VIEW_H;
+    const me = this.followId != null ? this.views.get(this.followId) : null;
+    const bx = me ? me.x - VIEW_W / 2 : cx, by = me ? me.y - VIEW_H / 2 : cy;
+    this.camOff = { x: cx - bx, y: cy - by };
+    this.cam.x = cx; this.cam.y = cy;
+    this.clampCam(true);
+  }
+
+  private applySize() {
+    if (!this.lightRT) return;
+    const aspect = Math.max(0.45, Math.min(2.4, this.cssW / this.cssH));
+    const z = this.zoom;
+    const cap = Math.max(250, Math.min(1100, Math.round(Math.min(this.cssW, this.cssH))));
+    const short = z >= 1 ? 250 : Math.min(cap, Math.round(250 / z));
+    const nw = aspect >= 1 ? Math.round(short * aspect) : short;
+    const nh = aspect >= 1 ? short : Math.round(short / aspect);
+    SC = (short * z) / 500;
+    VIEW_W = nw / SC; VIEW_H = nh / SC;
     if (nw === BW && nh === BH) return;
-    BW = nw; BH = nh; VIEW_W = BW / SC; VIEW_H = BH / SC;
+    BW = nw; BH = nh;
     this.app.renderer.resize(BW, BH);
     this.lightRT.resize(BW, BH);
     this.dark.clear().rect(0, 0, BW, BH).fill({ color: 0x040206, alpha: this.reveal ? 0.35 : 0.8 });
     const old = this.grain.texture;
     this.grain.texture = Texture.from(drawGrain(BW, BH));
     old.destroy(true);
+  }
+
+  /** Keep the camera (and the pan offset that drives it) inside the map, so panning never piles up off the edge. */
+  private clampCam(snap = false) {
+    if (!this.snap) return;
+    const mapW = this.snap.MW * TILE, mapH = this.snap.MH * TILE;
+    const me = this.followId != null ? this.views.get(this.followId) : null;
+    const bx = (me ? me.x : mapW / 2) - VIEW_W / 2, by = (me ? me.y : mapH / 2) - VIEW_H / 2;
+    let tx = bx + this.camOff.x, ty = by + this.camOff.y;
+    tx = mapW <= VIEW_W ? (mapW - VIEW_W) / 2 : Math.max(-40, Math.min(mapW - VIEW_W + 40, tx));
+    ty = mapH <= VIEW_H ? (mapH - VIEW_H) / 2 : Math.max(-40, Math.min(mapH - VIEW_H + 40, ty));
+    if (mapW > VIEW_W) this.camOff.x = tx - bx;
+    if (mapH > VIEW_H) this.camOff.y = ty - by;
+    if (snap) { this.cam.x = tx; this.cam.y = ty; }
+    return { tx, ty };
   }
   private lightPool: Sprite[] = [];
   private glowPool: Sprite[] = [];
@@ -386,12 +449,7 @@ export class GameRenderer {
     }
     if (!this.snap) return;
     // camera
-    const me = this.followId != null ? this.views.get(this.followId) : null;
-    const mapW = this.snap.MW * TILE, mapH = this.snap.MH * TILE;
-    let tx = (me ? me.x : mapW / 2) - VIEW_W / 2 + this.camOff.x;
-    let ty = (me ? me.y : mapH / 2) - VIEW_H / 2 + this.camOff.y;
-    tx = mapW <= VIEW_W ? (mapW - VIEW_W) / 2 : Math.max(-40, Math.min(mapW - VIEW_W + 40, tx));
-    ty = mapH <= VIEW_H ? (mapH - VIEW_H) / 2 : Math.max(-40, Math.min(mapH - VIEW_H + 40, ty));
+    const { tx, ty } = this.clampCam()!;
     this.cam.x += (tx - this.cam.x) * 0.12;
     this.cam.y += (ty - this.cam.y) * 0.12;
     for (const c of [this.world, this.over]) { c.scale.set(SC); c.position.set(Math.round(-this.cam.x * SC), Math.round(-this.cam.y * SC)); }

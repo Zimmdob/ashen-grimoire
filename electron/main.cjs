@@ -32,6 +32,13 @@ function createWindow() {
   });
   // links (like the GitHub page) open in the normal browser
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  // F11: the game's own fullscreen (map fills the screen, spells along the bottom), not just a bigger window
+  win.webContents.on('before-input-event', (e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') {
+      e.preventDefault();
+      win.webContents.executeJavaScript('window.__agToggleFs && window.__agToggleFs()', true).catch(() => win.setFullScreen(!win.isFullScreen()));
+    }
+  });
   const dev = process.env.VITE_DEV_SERVER_URL;
   const target = dev || `http://localhost:${PORT}/`;
   // the server needs a moment to start listening

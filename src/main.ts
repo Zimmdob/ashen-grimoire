@@ -2,7 +2,7 @@ import './style.css';
 import '@fontsource/vt323';
 import '@fontsource/pirata-one';
 import '@fontsource/im-fell-english';
-import { BH, BW, GameRenderer, SC } from './render/renderer';
+import { BH, BW, GameRenderer, SC, ZOOM_MAX } from './render/renderer';
 import { CARDS } from './sim/cards';
 import { RULES, UPGRADES } from './sim/constants';
 import { biomeOf, fromHand, PLACE_CLEARANCE, placeProblem, playerState, playerUnit, previewCast } from './sim/game';
@@ -224,7 +224,14 @@ canvas.addEventListener('pointermove', (e) => {
     if (!f) return;
     const r = canvas.getBoundingClientRect();
     const dx = ((e.clientX - f.x) / r.width) * BW / SC, dy = ((e.clientY - f.y) / r.height) * BH / SC;
+    // two fingers: pinch to zoom around their midpoint
+    const other = fingers.size === 2 ? [...fingers.entries()].find(([id]) => id !== e.pointerId)?.[1] : undefined;
+    const d0 = other ? Math.hypot(f.x - other.x, f.y - other.y) : 0;
     f.x = e.clientX; f.y = e.clientY;
+    if (other && d0 > 20) {
+      const d1 = Math.hypot(f.x - other.x, f.y - other.y);
+      zoomBy(d1 / d0, (f.x + other.x) / 2, (f.y + other.y) / 2);
+    }
     if (panning || touchMode === 'look' || fingers.size > 1) {
       // dragging the map: move the camera the opposite way (two fingers move it half as fast each)
       const k = fingers.size > 1 ? 0.5 : 1;
@@ -322,7 +329,11 @@ window.addEventListener('keydown', (e) => {
   if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
   const k = e.key.toLowerCase();
   keys.add(k);
+  if (k === 'f' && !e.repeat && !e.ctrlKey && !e.metaKey) { toggleFullscreen(); return; }
   if ($('overlay').classList.contains('on')) return;
+  if (k === 'z' && !e.repeat) { toggleWholeMap(); return; }
+  if (k === '-' || k === '_') { zoomBy(1 / 1.25); return; }
+  if (k === '=' || k === '+') { zoomBy(1.25); return; }
   const ps = me();
   if (!ps) return;
   if (k === ' ' || k === 'enter') { e.preventDefault(); endTurn(); }
@@ -334,6 +345,84 @@ window.addEventListener('keydown', (e) => {
   else if (/^[0-9]$/.test(k)) { const i = k === '0' ? 9 : Number(k) - 1; const id = ps.cards[i]; if (id) addCard(id); }
 });
 window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+// ---------------------------------------------------------------- zoom and fullscreen
+/** Zoom by a factor around a point on screen (client coords), or the middle of the map. */
+function zoomBy(f: number, clientX?: number, clientY?: number) {
+  const r = canvas.getBoundingClientRect();
+  const fx = clientX == null ? 0.5 : Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+  const fy = clientY == null ? 0.5 : Math.max(0, Math.min(1, (clientY - r.top) / r.height));
+  R.setZoom(R.zoom * f, { fx, fy });
+  lastZoom = 0;
+  paintViewbar();
+  dirty = true;
+}
+/** Z: jump between the whole depth and normal view. */
+let lastZoom = 0;
+function toggleWholeMap() {
+  const fit = R.fitZoom();
+  if (R.zoom > fit + 0.01) { lastZoom = R.zoom; R.setZoom(fit); R.camOff = { x: 0, y: 0 }; }
+  else { R.setZoom(lastZoom || 1); R.camOff = { x: 0, y: 0 }; lastZoom = 0; }
+  paintViewbar();
+}
+function paintViewbar() {
+  $('zoomFit').classList.toggle('on', R.zoom <= R.fitZoom() + 0.01);
+  $<HTMLButtonElement>('zoomIn').disabled = R.zoom >= ZOOM_MAX - 0.01;
+  $('fsBtn').textContent = document.body.classList.contains('fs') ? 'Exit' : 'Fullscreen';
+}
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const step = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+  zoomBy(Math.exp(-step * 0.0016), e.clientX, e.clientY);
+}, { passive: false });
+$('zoomIn').addEventListener('click', () => zoomBy(1.25));
+$('zoomOut').addEventListener('click', () => zoomBy(1 / 1.25));
+$('zoomFit').addEventListener('click', toggleWholeMap);
+
+/** Fullscreen: the browser's own when it allows (Esc leaves), and the full-screen layout either way. */
+function toggleFullscreen(on = !document.body.classList.contains('fs')) {
+  document.body.classList.toggle('fs', on);
+  const d = document as Document & { webkitFullscreenElement?: Element; webkitExitFullscreen?: () => void };
+  const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
+  try {
+    if (on && !(d.fullscreenElement ?? d.webkitFullscreenElement)) {
+      if (el.requestFullscreen) el.requestFullscreen().catch(() => { /* layout still goes full-window */ });
+      else el.webkitRequestFullscreen?.();
+    } else if (!on && (d.fullscreenElement ?? d.webkitFullscreenElement)) {
+      if (d.exitFullscreen) d.exitFullscreen().catch(() => {}); else d.webkitExitFullscreen?.();
+    }
+  } catch { /* not allowed here: the layout alone still helps */ }
+  if (!on) $('codex').classList.remove('open');
+  paintViewbar();
+  dirty = true;
+}
+let wasFull = false;
+const onFsChange = () => {
+  const d = document as Document & { webkitFullscreenElement?: Element };
+  const full = !!(d.fullscreenElement ?? d.webkitFullscreenElement);
+  if (wasFull && !full && document.body.classList.contains('fs')) toggleFullscreen(false); // Esc left fullscreen
+  wasFull = full;
+};
+document.addEventListener('fullscreenchange', onFsChange);
+document.addEventListener('webkitfullscreenchange', onFsChange);
+$('fsBtn').addEventListener('click', () => toggleFullscreen());
+$('fsCodex').addEventListener('click', () => $('codex').classList.toggle('open'));
+// The desktop app's F11 calls this (see electron/main.cjs).
+(window as unknown as { __agToggleFs: () => void }).__agToggleFs = () => toggleFullscreen();
+
+/** Where the pointer is on screen, for the fullscreen hover card. */
+let clientPt = { x: 0, y: 0 };
+window.addEventListener('pointermove', (e) => { clientPt = { x: e.clientX, y: e.clientY }; placeHoverTip(); }, { passive: true });
+function placeHoverTip() {
+  const el = $('hoverTip');
+  if (!el.classList.contains('on')) return;
+  const w = el.offsetWidth, h = el.offsetHeight;
+  let x = clientPt.x + 18, y = clientPt.y + 18;
+  if (x + w > innerWidth - 8) x = clientPt.x - w - 18;
+  if (y + h > innerHeight - 8) y = clientPt.y - h - 18;
+  el.style.left = `${Math.max(8, x)}px`;
+  el.style.top = `${Math.max(8, y)}px`;
+}
 
 function addCard(id: string) {
   if (!W || W.phase !== 'planning') return;
@@ -519,6 +608,11 @@ function refreshInfo() {
   const show = coarse && (pinnedId != null || hoverCard != null);
   tip.classList.toggle('on', show);
   if (show) { const html = $('info').innerHTML + '<div class="k">Tap here to close</div>'; if (tip.dataset.html !== html) { tip.dataset.html = html; tip.innerHTML = html; } }
+  // Fullscreen on a computer: the side panel is tucked away, so creatures and spells explain themselves by the cursor.
+  const ht = $('hoverTip');
+  const showHt = !coarse && document.body.classList.contains('fs') && !$('codex').classList.contains('open') && (hoverId != null || hoverCard != null);
+  ht.classList.toggle('on', showHt);
+  if (showHt) { const html = $('info').innerHTML; if (ht.dataset.html !== html) { ht.dataset.html = html; ht.innerHTML = html; } placeHoverTip(); }
 }
 
 function refreshInfoInner() {
@@ -529,7 +623,7 @@ function refreshInfoInner() {
     const ps = me()!;
     const used = ps.uses[hoverCard] ?? 0;
     info.innerHTML = `<div class="t">${esc(c.name)}</div><div class="k">${SCHOOL_NAME[c.school]} · ${c.mode === 'target' ? 'targeting card' : 'effect card'}</div><p>${esc(c.desc)}</p>
-      <div class="k">Base cost ${baseCostText(ps, hoverCard)}${used ? ` · cast ${used}× this depth (+${used * 25}%)` : ''}${ps.cardLevels[hoverCard] ? ` · inscribed ${'+'.repeat(ps.cardLevels[hoverCard])} (+${ps.cardLevels[hoverCard] * 50}% power)` : ''}</div>`;
+      <div class="k">Base cost ${baseCostText(ps, hoverCard)}${used ? ` · cast ${used}× this turn (+${used * 25}%, back to normal next turn)` : ''}${ps.cardLevels[hoverCard] ? ` · inscribed ${'+'.repeat(ps.cardLevels[hoverCard])} (+${ps.cardLevels[hoverCard] * 50}% power)` : ''}</div>`;
     return;
   }
   if (coarse) hoverId = pinnedId;
@@ -560,7 +654,7 @@ function refreshInfoInner() {
   const n = R.ov.threats.size;
   info.innerHTML = `<p>${n ? `<span class="warn">${n} foe${n > 1 ? 's' : ''} outlined in red can strike you next turn${threatDmg ? ` for about ${threatDmg}` : ''}.</span>` : 'No foe can reach you next turn.'}</p>
     <ul><li>Hold right-click to walk toward the cursor. Walking spends stamina.</li><li>Click cards, or press 1–0, to forge a spell; click a target to cast it.</li>
-    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Each card costs 25% more every time you use it on a depth.</li>
+    <li>Target cards widen who is hit; effects strike everything targeted so far. While aiming you see the exact area, every body it touches, and the damage. Gold marks foes, red warns it hits you or a friend.</li><li>Hover a card while aiming to preview adding it.</li><li>Each card costs 25% more every time you cast it in the same turn. Costs reset at the start of every turn.</li>
     <li>Shove foes into lava, traps, walls and each other. Urns burst when broken.</li><li>Gold coin: a bounty worth ${RULES.BOUNTY_POINTS} upgrade points. Diamonds: elite affixes.</li>
     <li>Click a bookmark slot to save a spell; F1–F4 recall it. Alt-click pings.</li><li>Hover a foe to see its reach. WASD pans, C recenters.</li>
     <li>Your lantern burns each turn. Oil flasks and braziers refill it; in the dark, Shades hunt you.</li><li>In co-op a fallen companion is only down: stand beside them and press R.</li></ul>`;
@@ -697,6 +791,7 @@ function loop() {
   if (frame % 2 === 0) updateOverlays();
   if (frame % 10 === 0) {
     music.setMood(biomeOf(W).music);
+    if (frame % 30 === 0) paintViewbar();
     if (frame % 60 === 0) {
       observe(W, me()?.cards ?? []);
       const ps0 = me();

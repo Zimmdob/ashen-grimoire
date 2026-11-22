@@ -8,7 +8,7 @@
 html, body { margin: 0; background: #070606; color: var(--ink); font: 17px/1.45 'IM Fell English', Georgia, serif; overflow-x: clip; }
 body { background: radial-gradient(ellipse at 50% -10%, #2c1510 0%, #0a0707 55%) fixed; min-height: 100vh; }
 #app { max-width: 1320px; margin: 0 auto; padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 12px; }
-@media (max-width: 960px) { #app { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 899px) { #app { grid-template-columns: minmax(0, 1fr); } }
 #left { display: grid; gap: 10px; align-content: start; }
 
 .frame {
@@ -305,3 +305,69 @@ body.touch .card { touch-action: manipulation; user-select: none; -webkit-user-s
 #aimTag.on { display: block; }
 #aimTag b { color: #ffd24a; font-weight: normal; } #aimTag .bad { color: #ff6a5a; } #aimTag .good { color: #8cff9a; }
 #aimTag .dim { color: var(--dim); } #aimTag .with { color: #c0a0ff; }
+
+/* ---------------------------------------------------------------- fit the window: nothing scrolls, so nothing jumps */
+@media (min-width: 900px) {
+  html, body { height: 100%; overflow: hidden; }
+  #app { height: 100vh; max-width: 1760px; grid-template-rows: minmax(0, 1fr); }
+  #left { display: flex; flex-direction: column; min-height: 0; height: 100%; }
+  #stage { flex: 1 1 auto; min-height: 240px; aspect-ratio: auto; }
+  #hud { flex: none; height: 136px; }
+  #forge { max-height: 112px; overflow: auto; }
+  #rack { flex: none; }
+  #codex { align-self: stretch; max-height: 100%; overflow: auto; align-content: start; }
+  #info { height: 230px; min-height: 0; overflow: auto; }
+}
+
+/* ---------------------------------------------------------------- view controls: zoom, whole map, fullscreen */
+#viewbar { position: absolute; right: 14px; top: 14px; display: flex; gap: 4px; z-index: 6; }
+#viewbar .btn { min-height: 34px; padding: 2px 10px; font-size: 17px; opacity: .85; }
+#viewbar .btn:hover { opacity: 1; }
+#viewbar #zoomOut, #viewbar #zoomIn { min-width: 34px; padding: 2px 0; font: 22px/1 'VT323', monospace; }
+#viewbar .btn.on { outline: 2px solid var(--gold); }
+#fsCodex { display: none; }
+#stage:has(#overlay.on) #viewbar { display: none; }
+body.touch #viewbar { top: 56px; right: 8px; }
+body.touch #viewbar .btn { min-height: 40px; }
+
+/* hover card for creatures and spells while fullscreen (the side panel is tucked away) */
+#hoverTip { position: fixed; display: none; z-index: 75; pointer-events: none; max-width: 340px; padding: 8px 12px;
+  background: rgba(14, 9, 9, .95); border: 2px solid #5a4030; font-size: 15px; color: var(--parch); }
+#hoverTip.on { display: block; }
+#hoverTip .t { font: 21px/1.05 'Pirata One', serif; color: var(--bone); }
+#hoverTip .k { font: 16px 'VT323', monospace; color: var(--dim); }
+#hoverTip .warn { color: #ff7a6a; } #hoverTip ul { margin: 4px 0; padding-left: 18px; } #hoverTip p { margin: 4px 0; }
+
+/* ---------------------------------------------------------------- fullscreen: the map takes the screen, spells along the bottom */
+body.fs, body.fs html { overflow: hidden; }
+body.fs #app { max-width: none; height: 100vh; height: 100svh; padding: 0; gap: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+body.fs #left { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 0; position: relative; }
+body.fs #stage { flex: 1 1 auto; min-height: 0; height: auto; aspect-ratio: auto; padding: 0; border: 0; border-radius: 0; box-shadow: none; }
+body.fs #stage::before, body.fs #stage::after { display: none; }
+body.fs #overlay { inset: 0; }
+body.fs #hud { height: auto; padding: 6px 12px; border-left: 0; border-right: 0; border-radius: 0; }
+body.fs #rack { padding: 6px 10px; border: 0; border-radius: 0; }
+body.fs #fsCodex { display: inline-block; }
+body.fs #fsBtn { outline: 2px solid var(--gold); }
+/* the side panel becomes a drawer */
+body.fs #codex { position: fixed; top: 0; right: 0; bottom: 0; width: 340px; max-width: 92vw; max-height: none; z-index: 80; overflow: auto;
+  transform: translateX(105%); transition: transform .25s; }
+body.fs #codex.open { transform: none; }
+body.fs #codex .close { display: inline-block; position: absolute; right: 12px; top: 12px; }
+@media (min-width: 761px) {
+  /* health, mana and stamina ride over the map's top-left corner */
+  body.fs #bars { position: absolute; left: 12px; top: 12px; width: 270px; z-index: 7; padding: 8px 10px;
+    background: rgba(10, 6, 6, .78); border: 1px solid #3a2a2a; }
+  body.fs #hud { grid-template-columns: minmax(0, 1fr) auto; position: static; }
+  body.fs #hud::before, body.fs #hud::after { display: none; }
+  body.fs #banner { left: 300px; }
+}
+@media (max-width: 760px) {
+  body.fs #stage { height: auto; min-height: 0; }
+  body.fs #hud { gap: 4px; padding: 4px 8px; }
+}
+@media (prefers-reduced-motion: reduce) { body.fs #codex { transition: none; } }
+body.fs #info { height: auto; }
+body.fs #codex { left: auto; }
+/* phones pinch to zoom, and already have Codex in the touch bar */
+body.touch #zoomOut, body.touch #zoomIn, body.touch #fsCodex { display: none; }

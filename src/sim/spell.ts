@@ -65,7 +65,7 @@ export function executeSpell(w: World, caster: Unit, cards: string[], aim: Pt, z
 export interface SpellPrice { mana: number; hp: number; souls: number; stam: number; oil: number }
 
 /**
- * Cost of a spell, with each card getting dearer every time it is used this depth.
+ * Cost of a spell, with each card getting dearer every time it is used this turn.
  * Each class pays its own way: mana, soul fragments, stamina (Hexblade) or lantern oil (Lantern Keeper).
  */
 export function spellCost(ps: PlayerState, cards: string[]): SpellPrice {

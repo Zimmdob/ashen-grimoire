@@ -470,7 +470,8 @@ function resolveWorldTurn(w: World) {
   w.turn++;
   w.beat++;
   w.turnHits = {};
-  for (const ps of w.players) { ps.endedTurn = false; if (!ps.left) playerUpkeep(w, ps); }
+  // Card expense only lasts for the turn it was paid in.
+  for (const ps of w.players) { ps.endedTurn = false; ps.uses = {}; if (!ps.left) playerUpkeep(w, ps); }
   // Bond: standing within 200 of a companion at the turn's end
   const up = standing(w);
   if (up.length >= 2 && up.some((a) => up.some((b) => a !== b && dist(a, b) <= 200))) w.bond = Math.min(100, w.bond + 4);
