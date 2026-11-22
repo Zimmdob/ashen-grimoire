@@ -149,14 +149,14 @@ try {
   if ($code -ge 8) { throw "copying failed (robocopy code $code). A file may be in use: close the game everywhere and try again." }
   Note "Done (robocopy code $code)."
   Remove-Item "$Staged" -Recurse -Force -ErrorAction SilentlyContinue
-  if ($Relaunch -eq 1) { Start-Process (Join-Path $Dest 'Ashen Grimoire.exe') }
+  if ($Relaunch -eq 1) { Start-Process explorer.exe -ArgumentList ('"' + (Join-Path $Dest 'Ashen Grimoire.exe') + '"') }
   Start-Sleep -Seconds 1
 } catch {
   Note ("Update failed: " + $_.Exception.Message)
   Write-Host ''
   Write-Host 'The update could not install. You can close this window; the game still works.' -ForegroundColor Yellow
   Read-Host 'Press Enter to close'
-  if ($Relaunch -eq 1) { Start-Process (Join-Path $Dest 'Ashen Grimoire.exe') }
+  if ($Relaunch -eq 1) { Start-Process explorer.exe -ArgumentList ('"' + (Join-Path $Dest 'Ashen Grimoire.exe') + '"') }
 }
 `);
   const q = (s) => `"${s}"`;
