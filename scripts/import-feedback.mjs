@@ -7,10 +7,14 @@ const LABELS = { bug: ['bug', 'd73a4a'], idea: ['idea', '0e8a16'], balance: ['ba
 
 const gh = (...args) => execFileSync('gh', args, { encoding: 'utf8' });
 
-const res = await fetch(`https://ntfy.sh/${CHANNEL}/json?poll=1&since=24h`);
+// Notes show up on the job's page (and through the API), so a quiet run can still be checked.
+const notice = (m) => console.log(`::notice title=feedback::${m}`);
+const res = await fetch(`https://ntfy.sh/${CHANNEL}/json?poll=1&since=24h`, { headers: { 'user-agent': 'ashen-grimoire-feedback-importer' } });
 if (!res.ok) throw new Error(`relay said ${res.status}`);
+const raw = await res.text();
+notice(`relay answered ${res.status} with ${raw.split('\n').filter((l) => l.trim()).length} line(s): ${raw.slice(0, 160).replace(/\s+/g, ' ')}`);
 const notes = [];
-for (const line of (await res.text()).split('\n')) {
+for (const line of raw.split('\n')) {
   if (!line.trim()) continue;
   let ev; try { ev = JSON.parse(line); } catch { continue; }
   if (ev.event !== 'message' || !ev.message) continue;
@@ -18,7 +22,7 @@ for (const line of (await res.text()).split('\n')) {
   if (!f || typeof f.text !== 'string' || !f.text.trim()) continue;
   notes.push({ id: ev.id, ...f });
 }
-if (!notes.length) { console.log('No new feedback.'); process.exit(0); }
+if (!notes.length) { notice('No feedback notes found.'); process.exit(0); }
 
 for (const [name, color] of Object.values(LABELS)) {
   try { gh('label', 'create', name, '--color', color, '--force'); } catch { /* exists */ }
@@ -46,4 +50,4 @@ for (const f of notes) {
   gh('issue', 'create', '--title', title, '--body', body, '--label', labels);
   filed++;
 }
-console.log(`Filed ${filed} new feedback issue(s).`);
+notice(`Found ${notes.length} note(s), filed ${filed} new issue(s).`);
