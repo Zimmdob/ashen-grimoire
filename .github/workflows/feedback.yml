@@ -1,24 +1,31 @@
-# Every 15 minutes (and on every push), turn players' in-game feedback into issues on this project.
+# Turns players' in-game feedback into issues on this project within seconds.
+# Each run catches up on the last day of notes, then listens to the relay for new ones. A run lasts
+# about 5h40m; a fresh one is started every hour and waits its turn, so there is always one
+# listening. (Jobs on public projects are free.)
 name: Collect player feedback
 on:
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
   push:
     branches: [main]
-  schedule:
-    - cron: '*/15 * * * *'
-  workflow_dispatch:
+    paths: ['scripts/import-feedback.mjs', '.github/workflows/feedback.yml']
 permissions:
   issues: write
 concurrency:
   group: feedback
+  cancel-in-progress: false
 jobs:
   import:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node scripts/import-feedback.mjs
+      - run: node scripts/import-feedback.mjs --watch
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          WATCH_MINUTES: '340'
