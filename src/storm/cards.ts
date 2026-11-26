@@ -45,6 +45,12 @@ export const STORM_CARDS: Record<string, StormCard> = Object.fromEntries([
   c('twin', 'Twin', 'mod', 'mirror', 'blessing', 'Also fire the same volley behind you.'),
   c('cluster', 'Cluster', 'mod', 'boneburst', 'harm', 'Shots break into three shards when they end.'),
   c('gravity', 'Gravity', 'mod', 'magnet', 'curse', 'Shots drag nearby foes toward them.'),
+  c('scythe', 'Grave Scythe', 'base', 'rend', 'grave', 'Spinning blades that cut through everything and come back to you.', 38),
+  c('leech', 'Leech Bolt', 'base', 'siphon', 'blood', 'Weak, quick bolts that drink mana from what they hit.', 34),
+  c('splinter', 'Splinter', 'mod', 'shatter', 'harm', 'On a hit, two shards fly off at angles.'),
+  c('shock', 'Shock', 'mod', 'chainlight', 'arcane', 'Hits stun foes for a moment (bosses barely notice).'),
+  c('spiral', 'Spiral', 'mod', 'maelstrom', 'arcane', 'Shots curl outward in a spiral.'),
+  c('siphon', 'Soul Siphon', 'mod', 'gravepact', 'grave', 'Foes killed by this spell give back 5 mana.'),
 ].map((x) => [x.id, x]));
 
 export const BASES = Object.values(STORM_CARDS).filter((x) => x.kind === 'base').map((x) => x.id);
@@ -61,6 +67,9 @@ export interface SpellStats {
   burst: { after: number; n: number; dmg: number } | null;
   color: number; life: number;
   bounce: number; boomer: boolean; wave: boolean; twin: boolean; cluster: boolean; gravity: boolean;
+  splinter: boolean; shock: boolean; spiral: boolean; siphon: number;
+  /** Mana gained per hit (leech bolts). */
+  leech: number;
   /** Hits the same foe again after this many seconds (void orbs grind). 0 = once. */
   tick: number;
   /** Meteor: flies to the aim point and explodes with this radius. */
@@ -69,7 +78,7 @@ export interface SpellStats {
   turret: boolean;
 }
 
-type BaseStats = Pick<SpellStats, 'dmg' | 'speed' | 'rate' | 'mana' | 'pierce' | 'chain' | 'size' | 'slow' | 'burst' | 'color' | 'life'> & Partial<Pick<SpellStats, 'tick' | 'boom' | 'turret'>>;
+type BaseStats = Pick<SpellStats, 'dmg' | 'speed' | 'rate' | 'mana' | 'pierce' | 'chain' | 'size' | 'slow' | 'burst' | 'color' | 'life'> & Partial<Pick<SpellStats, 'tick' | 'boom' | 'turret' | 'boomer' | 'leech'>>;
 const BASE_STATS: Record<string, BaseStats> = {
   ember: { dmg: 7, speed: 470, rate: 7, mana: 4, pierce: 0, chain: 0, size: 5, slow: 0, burst: null, color: 0xff8a3a, life: 1.4 },
   frost: { dmg: 5, speed: 390, rate: 5, mana: 4, pierce: 1, chain: 0, size: 5, slow: 0.5, burst: null, color: 0x9fe0ff, life: 1.6 },
@@ -80,6 +89,8 @@ const BASE_STATS: Record<string, BaseStats> = {
   arc: { dmg: 6, speed: 1300, rate: 4.5, mana: 6, pierce: 4, chain: 0, size: 4, slow: 0, burst: null, color: 0x8fe8ff, life: 0.26 },
   meteor: { dmg: 30, speed: 420, rate: 0.9, mana: 18, pierce: 0, chain: 0, size: 10, slow: 0, burst: null, color: 0xff5a1a, life: 2, boom: 70 },
   wisp: { dmg: 5, speed: 420, rate: 0.35, mana: 22, pierce: 0, chain: 0, size: 7, slow: 0, burst: null, color: 0xbfe8ff, life: 6, turret: true },
+  scythe: { dmg: 9, speed: 320, rate: 2.6, mana: 7, pierce: 99, chain: 0, size: 9, slow: 0, burst: null, color: 0xc8b8ff, life: 0.9, boomer: true },
+  leech: { dmg: 4.5, speed: 520, rate: 6.5, mana: 2.5, pierce: 0, chain: 0, size: 5, slow: 0, burst: null, color: 0xc83a6a, life: 1.2, leech: 1.6 },
 };
 
 /** A spell is [base, ...mods]. An empty or base-less spell fires nothing. */
@@ -89,7 +100,8 @@ export function spellStats(cards: string[], dmgMul = 1, rateMul = 1): SpellStats
   const b = BASE_STATS[base];
   const s: SpellStats = {
     ...b, burst: b.burst && { ...b.burst }, count: 1, spread: 0, ring: false, homing: 0, orbit: false, echo: false, burn: 0,
-    bounce: 0, boomer: false, wave: false, twin: false, cluster: false, gravity: false, tick: b.tick ?? 0, boom: b.boom ?? 0, turret: !!b.turret,
+    bounce: 0, boomer: !!b.boomer, wave: false, twin: false, cluster: false, gravity: false, tick: b.tick ?? 0, boom: b.boom ?? 0, turret: !!b.turret,
+    splinter: false, shock: false, spiral: false, siphon: 0, leech: b.leech ?? 0,
   };
   for (const m of cards) {
     switch (m) {
@@ -109,6 +121,10 @@ export function spellStats(cards: string[], dmgMul = 1, rateMul = 1): SpellStats
       case 'twin': s.twin = true; s.mana *= 1.5; break;
       case 'cluster': s.cluster = true; s.mana *= 1.35; break;
       case 'gravity': s.gravity = true; s.mana *= 1.3; break;
+      case 'splinter': s.splinter = true; s.mana *= 1.25; break;
+      case 'shock': s.shock = true; s.mana *= 1.3; break;
+      case 'spiral': s.spiral = true; s.life *= 1.3; s.count += 1; s.spread += 0.5; s.mana *= 1.2; break;
+      case 'siphon': s.siphon += 5; break;
     }
   }
   if (s.burst) s.burst.n = Math.round(s.burst.n * (s.count > 1 ? 0.7 : 1));
@@ -126,13 +142,14 @@ export function spellSummary(cards: string[]): string {
   const flag = (on: unknown, t: string) => { if (on) bits.push(t); };
   flag(s.burst, `bursts into ${s.burst?.n}`); flag(s.boom, 'explodes'); flag(s.tick, 'grinds'); flag(s.pierce && s.pierce < 50, `pierces ${s.pierce}`);
   flag(s.chain, `chains ${s.chain}`); flag(s.homing, 'seeks'); flag(s.orbit, 'orbits'); flag(s.echo, 'echoes'); flag(s.burn, 'burns'); flag(s.slow, 'slows');
+  flag(s.splinter, 'splinters'); flag(s.shock, 'stuns'); flag(s.spiral, 'spirals'); flag(s.siphon, 'siphons'); flag(s.leech, 'drinks mana');
   flag(s.bounce, 'ricochets'); flag(s.boomer, 'returns'); flag(s.wave, 'weaves'); flag(s.twin, 'fires behind too'); flag(s.cluster, 'clusters'); flag(s.gravity, 'pulls foes');
   return bits.join(' · ');
 }
 
 // ------------------------------------------------------------------ relics: passive gifts for the run
-export interface Relic { id: string; name: string; desc: string; icon: string; school: School; price: number }
-const r = (id: string, name: string, icon: string, school: School, desc: string, price = 60): Relic => ({ id, name, icon, school, desc, price });
+export interface Relic { id: string; name: string; desc: string; icon: string; school: School; price: number; curse?: boolean }
+const r = (id: string, name: string, icon: string, school: School, desc: string, price = 60, curse = false): Relic => ({ id, name, icon, school, desc, price, curse });
 export const RELICS: Record<string, Relic> = Object.fromEntries([
   r('emberheart', 'Ember Heart', 'crimson', 'blood', 'One more heart (and heal one).'),
   r('moonwell', 'Moonwell Phial', 'siphon', 'arcane', 'Mana returns 50% faster.'),
@@ -152,5 +169,22 @@ export const RELICS: Record<string, Relic> = Object.fromEntries([
   r('ward', 'Warding Charm', 'ward', 'blessing', 'Each room begins with a ward that blocks one hit.', 70),
   r('bloodthirst', 'Bloodthirst', 'hemorrhage', 'blood', 'Every 25 kills heal a heart.'),
   r('echostone', 'Echo Stone', 'echo', 'arcane', 'Every fourth volley echoes.'),
+  r('stormcrown', 'Storm Crown', 'flare', 'arcane', 'Every 30 grazes grant an Ash Nova.', 70),
+  r('emberwake', 'Ember Wake', 'cinders', 'harm', 'Your blink leaves a burst of fire behind it.'),
+  r('mirror', 'Mirror Shard', 'mirror', 'blessing', 'Grazed shots sometimes turn and fly at your foes.'),
+  r('heavyhand', 'Scholar’s Hand', 'empower', 'arcane', 'Every spell costs a quarter less mana.', 70),
+  r('goldtooth', 'Gold Tooth', 'crimson', 'blood', 'Twice the cinders from every foe.', 45),
+  r('closequarters', 'Knife-Fighter’s Ring', 'rend', 'harm', 'Foes close to you take 30% more damage.'),
+  r('dancer', 'Dancer’s Ribbon', 'haste', 'blessing', 'Your spells hit 25% harder while you’re moving.'),
+  r('stillwater', 'Stillwater Bead', 'ward', 'curse', 'Stand still for a moment and your spells hit 60% harder.'),
+  r('mendgraze', 'Moth Silk', 'mend', 'blessing', 'Every 60 grazes heal a heart.', 65),
+  r('bulwark', 'Bulwark Sigil', 'fortify', 'blessing', 'Your ward comes back 15 seconds after it breaks.', 80),
+  r('quickfeet', 'Quickfeet', 'dash', 'force', 'You move 15% faster.', 45),
+  r('lastrites', 'Last Rites', 'gravepact', 'grave', 'On your last heart, everything fires 50% faster.', 50),
+  // curses: what events cost you
+  r('c_brittle', 'Curse: Brittle Bones', 'frail', 'curse', 'One heart fewer.', 0, true),
+  r('c_hurry', 'Curse: Hurried Doom', 'haste', 'curse', 'Foe shots fly 12% faster.', 0, true),
+  r('c_poverty', 'Curse: Empty Purse', 'decay', 'curse', 'Half the cinders.', 0, true),
 ].map((x) => [x.id, x]));
-export const RELIC_IDS = Object.keys(RELICS);
+export const RELIC_IDS = Object.keys(RELICS).filter((id) => !RELICS[id].curse);
+export const CURSE_IDS = Object.keys(RELICS).filter((id) => RELICS[id].curse);

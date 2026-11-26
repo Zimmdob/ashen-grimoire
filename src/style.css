@@ -514,3 +514,16 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .scard:disabled { opacity: .45; cursor: default; }
 .storm .sbig { font: 48px 'VT323', monospace; color: #ffd06a; text-align: center; margin: 6px 0; }
 .storm .sbig small { font-size: 22px; color: #8cff9a; }
+.storm .sclasses { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.storm .sclasses .btn { display: grid; gap: 2px; width: 160px; text-align: center; }
+.storm .sclasses small { font-size: 14px; opacity: .85; }
+.storm .sach { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px; margin: 8px 0; }
+.storm .sach div { padding: 6px 8px; border: 2px solid #3a2a1a; color: #7a6a5a; font: 17px 'VT323', monospace; display: grid; }
+.storm .sach div.got { border-color: #e0c040; color: #e9dcc0; background: rgba(60, 40, 10, .3); }
+.storm .sach b { font-weight: normal; font-size: 19px; }
+/* boss title card */
+.storm .sbanner { position: absolute; left: 0; right: 0; top: 28%; text-align: center; pointer-events: none; opacity: 0; font-family: 'VT323', monospace; }
+.storm .sbanner b { display: block; font-size: clamp(44px, 7vw, 96px); font-weight: normal; color: #ffe8b0; letter-spacing: 6px; text-shadow: 0 0 18px #ff8a2a, 0 4px 0 #000; }
+.storm .sbanner small { display: block; font-size: clamp(18px, 2vw, 28px); color: #c8a87a; letter-spacing: 8px; text-transform: uppercase; }
+.storm .sbanner.on { animation: sbanner 2.6s ease-out forwards; }
+@keyframes sbanner { 0% { opacity: 0; transform: scale(1.25); filter: blur(6px); } 12% { opacity: 1; transform: scale(1); filter: blur(0); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-12px); } }
