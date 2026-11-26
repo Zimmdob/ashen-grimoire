@@ -487,3 +487,30 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .sforge em { font-style: normal; color: #9a8a6a; }
 .storm .sforge .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0; }
 .storm .sforge p { margin: 2px 0; color: #c8b89a; font: 17px 'VT323', monospace; }
+.storm .shearts .ward { color: #8fd0ff; margin-left: 4px; }
+.storm .sbomb, .storm .scind { padding: 0 6px; border: 2px solid #3a2a1a; color: #7a6a4a; }
+.storm .sbomb.ready { border-color: #e0a040; color: #ffd06a; }
+.storm .scind { color: #ffb04a; border-color: #4a2a0a; }
+.storm .sscore { color: #ffd06a; min-width: 90px; text-align: right; }
+.storm .srelics { position: absolute; left: 10px; top: 10px; display: flex; flex-wrap: wrap; gap: 4px; max-width: 30vw; pointer-events: auto; }
+.storm .srelics img { width: 26px; height: 26px; image-rendering: pixelated; border: 2px solid #4a3a2a; background: #0a0604; }
+.storm .sdiff { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.storm .sdiff .btn { display: grid; gap: 2px; width: 220px; text-align: center; }
+.storm .sdiff small { font-size: 15px; opacity: .85; }
+.storm .sendless { display: block; margin: 12px 0; font: 18px 'VT323', monospace; color: #c8b89a; }
+.storm .sact { text-align: center; }
+.storm .sact small { font: 22px 'VT323', monospace; color: #9a8a6a; letter-spacing: 4px; text-transform: uppercase; }
+.storm .sact h2 { font-size: 46px; margin: 4px 0 8px; }
+.storm .sdoors { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; margin: 12px 0; }
+.storm .sdoor { width: 230px; min-height: 190px; display: grid; justify-items: center; align-content: start; gap: 6px; padding: 16px 10px; border: 3px solid #5a4a2a; border-radius: 90px 90px 6px 6px; background: linear-gradient(#1a120a, #0a0604); color: #e9dcc0; font: 18px 'VT323', monospace; cursor: pointer; }
+.storm .sdoor:hover { border-color: #e0c040; background: linear-gradient(#2a1c0c, #120a04); }
+.storm .sdoor i { font-style: normal; font-size: 44px; color: #ffd06a; }
+.storm .sdoor b { font-size: 24px; font-weight: normal; }
+.storm .sdoor span { color: #c8b89a; font-size: 17px; }
+.storm .sdoor.elite i { color: #ffb020; } .storm .sdoor.treasure i { color: #9fe0ff; } .storm .sdoor.shrine i { color: #c890ff; } .storm .sdoor.shop i { color: #8cff9a; } .storm .sdoor.boss i { color: #ff4a3a; }
+.storm .soffers { display: grid; gap: 8px; max-width: 560px; margin: 10px auto; }
+.storm .scard .sglyph { font-style: normal; font-size: 34px; color: #ff6a7a; line-height: 40px; }
+.storm .scard.relic { border-style: double; border-width: 4px; }
+.storm .scard:disabled { opacity: .45; cursor: default; }
+.storm .sbig { font: 48px 'VT323', monospace; color: #ffd06a; text-align: center; margin: 6px 0; }
+.storm .sbig small { font-size: 22px; color: #8cff9a; }
