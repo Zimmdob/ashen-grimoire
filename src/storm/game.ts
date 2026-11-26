@@ -15,11 +15,11 @@ import { T_LAVA } from '../sim/constants';
 
 /** How each act is lit: how dark the unlit ground is, the ambient tint, and its weather. */
 const LOOK: { dark: number; tint: number; weather: 'leaves' | 'dust' | 'snow' | 'ash' | 'embers'; back: number }[] = [
-  { dark: 0.28, tint: 0x1a2a10, weather: 'leaves', back: 0x0c140a },
-  { dark: 0.66, tint: 0x0a0610, weather: 'dust', back: 0x0a070c },
-  { dark: 0.55, tint: 0x0a1020, weather: 'snow', back: 0x060a14 },
-  { dark: 0.7, tint: 0x14040a, weather: 'ash', back: 0x100408 },
-  { dark: 0.62, tint: 0x140804, weather: 'embers', back: 0x120604 },
+  { dark: 0.16, tint: 0x1a2a10, weather: 'leaves', back: 0x0c140a },
+  { dark: 0.42, tint: 0x0a0610, weather: 'dust', back: 0x0a070c },
+  { dark: 0.36, tint: 0x0a1020, weather: 'snow', back: 0x060a14 },
+  { dark: 0.45, tint: 0x14040a, weather: 'ash', back: 0x100408 },
+  { dark: 0.4, tint: 0x140804, weather: 'embers', back: 0x120604 },
 ];
 /** Sprites for things the main game draws under another name. */
 const SPRITE_OF: Partial<Record<string, string>> = { brazier: 'effigy' };
@@ -72,7 +72,10 @@ const DOORS: Record<RoomKind, { name: string; desc: string; glyph: string }> = {
   boss: { name: 'The Lord of this place', desc: 'The act’s boss.', glyph: '☠' },
 };
 
-interface Best { score: Partial<Record<Difficulty, number>>; abyss: number; daily?: Record<string, number>; cls?: ClassId }
+type Bright = 'dim' | 'normal' | 'bright';
+/** How much of each act's darkness to keep: Bright nearly removes it. */
+const BRIGHT: Record<Bright, { name: string; dark: number }> = { dim: { name: 'Moody', dark: 1.25 }, normal: { name: 'Normal', dark: 1 }, bright: { name: 'Bright', dark: 0.3 } };
+interface Best { score: Partial<Record<Difficulty, number>>; abyss: number; daily?: Record<string, number>; cls?: ClassId; bright?: Bright }
 function loadBest(): Best { try { const b = JSON.parse(localStorage.getItem('ashen-storm-best') || 'null') as Best | null; return b && b.score ? b : { score: {}, abyss: 0 }; } catch { return { score: {}, abyss: 0 }; } }
 function saveBest(b: Best) { try { localStorage.setItem('ashen-storm-best', JSON.stringify(b)); } catch { /* storage unavailable */ } }
 
@@ -134,6 +137,8 @@ class Cinderstorm {
   private texts = new Map<object, Text>();
   private best = loadBest();
   private cls: ClassId = this.best.cls ?? 'spellwright';
+  private bright: Bright = this.best.bright ?? 'normal';
+  private wallG = new Graphics();
   private daily = false;
   private ach = loadAch();
   // ---- the look
@@ -182,10 +187,11 @@ class Cinderstorm {
     this.darkSprite = new Sprite(this.darkRT);
     this.darkSprite.scale.set(2);
     // the dark falls on the ground only: bodies, traps and shots always stay readable
-    this.world.addChild(this.mapSprite, this.liqSprite, this.darkSprite, this.hazG, this.shadowG, this.unitLayer, this.glowLayer, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
+    this.world.addChild(this.mapSprite, this.liqSprite, this.darkSprite, this.wallG, this.hazG, this.shadowG, this.unitLayer, this.glowLayer, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
     this.vignette = new Sprite(Texture.from(vignetteCanvas()));
     for (let i = 0; i < 5; i++) { const g = new Sprite(this.glow); g.anchor.set(0.5); this.backGlows.push(g); this.backC.addChild(g); }
-    this.app.stage.addChild(this.backG, this.backC, this.world, this.vignette, this.flashG);
+    // the vignette darkens only the backdrop around the arena, never the fight itself
+    this.app.stage.addChild(this.backG, this.backC, this.vignette, this.world, this.flashG);
     this.playerSprite = new Sprite(Texture.from(this.sprites.wizard.canvas));
     this.playerSprite.anchor.set(0.5, 0.7);
     this.playerSprite.scale.set(2);
@@ -232,6 +238,19 @@ class Cinderstorm {
     this.lavaLights = [];
     for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x += 2) if (this.w.map[y][x] === T_LAVA) this.lavaLights.push({ x: x * 32 + 16, y: y * 32 + 16 });
     this.motes = [];
+    // a faint lit edge on every wall face beside the floor, so cover always reads in the dark
+    const wg = this.wallG;
+    wg.clear();
+    const m = this.w.map, isW = (x: number, y: number) => x < 0 || y < 0 || x >= MW || y >= MH || m[y][x] === 1;
+    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) {
+      if (!isW(x, y)) continue;
+      const X = x * 32, Y = y * 32;
+      if (!isW(x, y + 1)) wg.moveTo(X, Y + 32).lineTo(X + 32, Y + 32);
+      if (!isW(x, y - 1)) wg.moveTo(X, Y).lineTo(X + 32, Y);
+      if (!isW(x - 1, y)) wg.moveTo(X, Y).lineTo(X, Y + 32);
+      if (!isW(x + 1, y)) wg.moveTo(X + 32, Y).lineTo(X + 32, Y + 32);
+    }
+    wg.stroke({ width: 2, color: 0xe8d8b8, alpha: 0.32 });
   }
 
   /** Start playing the room the world is in now. */
@@ -417,7 +436,7 @@ class Cinderstorm {
     this.backG.clear().rect(0, 0, sw, sh).fill({ color: look.back });
     this.backGlows.forEach((g, i) => { const t = now / 9000 + i * 1.7; g.position.set(sw * (0.5 + Math.sin(t) * 0.45), sh * (0.5 + Math.cos(t * 0.8) * 0.45)); g.scale.set(Math.max(sw, sh) / 40); g.tint = look.tint; g.alpha = 0.9; });
     this.vignette.width = sw; this.vignette.height = sh;
-    this.vignette.alpha = 0.55 + look.dark * 0.35;
+    this.vignette.alpha = 0.7;
     this.flash.a *= 0.88;
     this.flashG.clear();
     if (this.flash.a > 0.01) this.flashG.rect(0, 0, sw, sh).fill({ color: this.flash.color, alpha: this.flash.a });
@@ -591,7 +610,7 @@ class Cinderstorm {
   private drawLight(now: number, look: (typeof LOOK)[number]) {
     const w = this.w, p = w.player;
     const lights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
-    if (!p.dead) lights.push({ x: p.x, y: p.y, r: 200 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.18 });
+    if (!p.dead) lights.push({ x: p.x, y: p.y, r: 250 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.14 });
     for (const b of w.bullets) {
       if (lights.length > 260) break;
       // every shot lights the floor; only some glow, so dense volleys don't wash out
@@ -607,7 +626,7 @@ class Cinderstorm {
     }
     for (const k of w.pickups) if (k.kind === 'heart') lights.push({ x: k.x, y: k.y, r: 40, a: 0.8, color: 0xff3a4a, glow: 0.3 });
     // darkness with holes
-    this.darkG.clear().rect(0, 0, AW / 2, AH / 2).fill({ color: look.tint, alpha: look.dark });
+    this.darkG.clear().rect(0, 0, AW / 2, AH / 2).fill({ color: look.tint, alpha: Math.min(0.6, look.dark * BRIGHT[this.bright].dark) });
     let hi = 0, gi = 0;
     for (const L of lights) {
       let h = this.holes[hi++];
@@ -714,8 +733,10 @@ class Cinderstorm {
       <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}"><b>${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`).join('')}</div>
       <h3>How fierce?</h3>
       <div class="sdiff">${(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => `<button type="button" class="btn ${this.diff === d ? 'ember' : ''}" data-d="${d}"><b>${DIFFICULTY[d].name}</b><small>${esc(DIFFICULTY[d].desc)}</small>${b[d] ? `<small>Best: ${b[d]!.toLocaleString()}</small>` : ''}</button>`).join('')}</div>
+      <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
       <label class="sendless"><input type="checkbox" id="sEndless" ${this.endless ? 'checked' : ''}> The Abyss: after the Hollow King, loop back to the start, harder each time, for as long as you last.${this.best.abyss ? ` (Deepest: Abyss ${this.best.abyss})` : ''}</label>
       <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
+    this.on('[data-bright]', (el) => { this.setBright(el.dataset.bright as Bright); this.menu(); });
     this.on('[data-cls]', (el) => { this.cls = el.dataset.cls as ClassId; this.best.cls = this.cls; saveBest(this.best); this.menu(); });
     this.on('[data-s="daily"]', () => { this.daily = true; this.startRun(); });
     this.on('[data-s="ach"]', () => this.achievements());
@@ -748,11 +769,14 @@ class Cinderstorm {
     this.ptrA = this.ptrB = false;
     this.show(`<h2>Paused</h2>
       <p class="k">${this.w.player.relics.length ? `Relics: ${this.w.player.relics.map((id) => esc(RELICS[id].name)).join(', ')}` : 'No relics yet.'}</p>
+      <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
       <div class="row"><button type="button" class="btn ember" data-s="go">Resume</button><button type="button" class="btn" data-s="forge">Look at my spells</button><button type="button" class="btn" data-s="quit">Abandon the run</button></div>`);
+    this.on('[data-bright]', (el) => { this.setBright(el.dataset.bright as Bright); this.mode = 'play'; this.pause(); });
     this.on('[data-s="go"]', () => this.resume());
     this.on('[data-s="forge"]', () => this.forge(() => { this.mode = 'paused'; this.resume(); }, 'Back to the fight'));
     this.on('[data-s="quit"]', () => this.results(true));
   }
+  private setBright(b: Bright) { this.bright = b; this.best.bright = b; saveBest(this.best); }
   private resume() {
     this.hide();
     this.mode = 'play';
