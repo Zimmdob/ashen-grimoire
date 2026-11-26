@@ -59,8 +59,8 @@ describe('Cinderstorm', () => {
       if (++guard > 40) throw new Error('run did not end');
     }
     expect(w.won).toBe(true);
-    expect(w.stats.bosses).toBe(5);
-    for (const b of ['stag', 'warden', 'lich', 'choir', 'king']) expect(phases.get(b)?.size, b).toBeGreaterThanOrEqual(3);
+    expect(w.stats.bosses).toBe(6);
+    for (const b of ['stag', 'warden', 'lich', 'orrery', 'choir', 'king']) expect(phases.get(b)?.size, b).toBeGreaterThanOrEqual(3);
     const roster = new Set(ACTS.flatMap((a) => a.roster));
     expect([...roster].filter((r) => kinds.has(r)).length).toBeGreaterThanOrEqual(roster.size - 2);
     expect(kinds.size).toBeGreaterThanOrEqual(16);
@@ -148,7 +148,7 @@ describe('Cinderstorm', () => {
     const v = newRun({ seed: 6 });
     addRelic(v, 'secondwind');
     v.player.hp = 1; v.player.inv = 0;
-    v.bullets.push({ ...v.bullets[0], id: 1, x: v.player.x, y: v.player.y, vx: 0, vy: 0, r: 5, dmg: 1, life: 5, age: 0, friendly: false, color: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: 0, bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0, splinter: false, shock: false, siphon: 0, leech: 0 });
+    v.bullets.push({ ...v.bullets[0], id: 1, x: v.player.x, y: v.player.y, vx: 0, vy: 0, r: 5, dmg: 1, life: 5, age: 0, friendly: false, color: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: 0, bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0, splinter: false, shock: false, siphon: 0, leech: 0, orbitFoe: null });
     update(v, NO_INPUT);
     expect(v.player.dead).toBe(false);
     expect(v.player.hp).toBe(3);
@@ -177,11 +177,47 @@ describe('Cinderstorm', () => {
     const p = w.player;
     p.inv = 0;
     for (let i = 0; i < 20 && !p.dead; i++) {
-      w.bullets.push({ id: 999 + i, x: p.x, y: p.y, vx: 0, vy: 0, r: 5, dmg: 1, life: 5, age: 0, friendly: false, color: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: 0, bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0, splinter: false, shock: false, siphon: 0, leech: 0 });
+      w.bullets.push({ id: 999 + i, x: p.x, y: p.y, vx: 0, vy: 0, r: 5, dmg: 1, life: 5, age: 0, friendly: false, color: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: 0, bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0, splinter: false, shock: false, siphon: 0, leech: 0, orbitFoe: null });
       update(w, NO_INPUT);
       p.inv = 0;
     }
     expect(p.dead).toBe(true);
     expect(w.stats.hitsTaken).toBe(6);
+  });
+});
+
+describe('cinderstorm: forges, familiars, rush', () => {
+  it('the orrery fires shots that orbit it, then fly free', () => {
+    const w = newRun({ seed: 7 });
+    w.act = 3; enterRoom(w, 4);
+    expect(ACTS[3].boss).toBe('orrery');
+    let orbiting = 0, freed = 0;
+    for (let t = 0; t < 60 * 10; t++) {
+      if (t % 18 === 0) onBeat(w, t / 18);
+      w.player.inv = 1; w.player.hp = w.player.maxHp;
+      update(w, NO_INPUT);
+      for (const b of w.bullets) if (!b.friendly) { if (b.orbitFoe) orbiting++; else if (b.age > 3) freed++; }
+    }
+    expect(w.foes.some((f) => f.type === 'orrery')).toBe(true);
+    expect(orbiting).toBeGreaterThan(0);
+    expect(freed).toBeGreaterThan(0);
+  });
+  it('familiars join you and fight', () => {
+    const w = newRun({ seed: 9 });
+    addRelic(w, 'f_imp'); addRelic(w, 'f_hound');
+    enterRoom(w, 1);
+    let dealt = 0;
+    for (let t = 0; t < 60 * 8; t++) {
+      w.player.inv = 1; w.player.hp = w.player.maxHp;
+      update(w, NO_INPUT);
+      dealt = Math.max(dealt, w.stats.kills * 100 + w.foes.reduce((s, f) => s + (f.maxHp - f.hp), 0));
+    }
+    expect(w.familiars.length).toBe(2);
+    expect(dealt).toBeGreaterThan(0);
+  });
+  it('boss rush makes every room a boss', () => {
+    const w = newRun({ seed: 3, rush: true });
+    enterRoom(w, 1);
+    expect(w.kind).toBe('boss');
   });
 });

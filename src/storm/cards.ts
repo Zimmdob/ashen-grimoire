@@ -181,6 +181,9 @@ export const RELICS: Record<string, Relic> = Object.fromEntries([
   r('bulwark', 'Bulwark Sigil', 'fortify', 'blessing', 'Your ward comes back 15 seconds after it breaks.', 80),
   r('quickfeet', 'Quickfeet', 'dash', 'force', 'You move 15% faster.', 45),
   r('lastrites', 'Last Rites', 'gravepact', 'grave', 'On your last heart, everything fires 50% faster.', 50),
+  r('f_imp', 'Familiar: Ember Imp', 'sum_ghoul', 'summon', 'A little imp circles you and spits burning bolts at foes.', 70),
+  r('f_owl', 'Familiar: Frost Owl', 'rime', 'summon', 'A pale owl circles you, firing slowing shards that pierce.', 70),
+  r('f_hound', 'Familiar: Bone Hound', 'raise', 'summon', 'A skeletal hound guards you and savages anything that comes close.', 70),
   // curses: what events cost you
   r('c_brittle', 'Curse: Brittle Bones', 'frail', 'curse', 'One heart fewer.', 0, true),
   r('c_hurry', 'Curse: Hurried Doom', 'haste', 'curse', 'Foe shots fly 12% faster.', 0, true),

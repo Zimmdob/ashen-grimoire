@@ -39,13 +39,16 @@ export interface Bullet {
   /** Turns its flight by this many radians a second (Spiral). */
   spin: number;
   splinter: boolean; shock: boolean; siphon: number; leech: number;
+  /** Foe shots that circle their caster like planets before flying out. */
+  orbitFoe: { id: number; ang: number; rad: number; spin: number; t: number; speed: number } | null;
 }
 export type FoeType =
   | 'boar' | 'thornling' | 'xbow' | 'hag' | 'wolf'
   | 'ghoul' | 'spitter' | 'necro' | 'bellringer'
   | 'wight' | 'wisp' | 'gargoyle' | 'shade'
   | 'cultist' | 'bloodarcher' | 'imp' | 'flagellant'
-  | 'stag' | 'warden' | 'lich' | 'choir' | 'king' | 'ashling' | 'brazier' | 'unwritten';
+  | 'stag' | 'warden' | 'lich' | 'choir' | 'king' | 'ashling' | 'brazier' | 'unwritten'
+  | 'automaton' | 'gearspider' | 'slag' | 'anvil' | 'orrery';
 /** Champions carry one of these. */
 export type Affix = 'swift' | 'warded' | 'splitting' | 'vampiric' | 'volleying';
 export const AFFIXES: Record<Affix, string> = { swift: 'Swift', warded: 'Warded', splitting: 'Splitting', vampiric: 'Undying', volleying: 'Volleying' };
@@ -68,7 +71,7 @@ export interface Hazard {
   warn: number; life: number; t: number; color: number;
 }
 export interface Pickup { kind: 'cinder' | 'heart'; x: number; y: number; vx: number; vy: number; n: number; t: number }
-export interface Fx { kind: 'hit' | 'die' | 'blink' | 'spawn' | 'hurt' | 'burst' | 'ring' | 'nova' | 'graze' | 'boom' | 'text' | 'phase'; x: number; y: number; color: number; t: number; dur: number; r?: number; text?: string }
+export interface Fx { kind: 'hit' | 'die' | 'blink' | 'spawn' | 'hurt' | 'burst' | 'ring' | 'nova' | 'graze' | 'boom' | 'text' | 'phase'; x: number; y: number; color: number; t: number; dur: number; r?: number; text?: string; src?: string }
 export interface Player {
   x: number; y: number; vx: number; vy: number; r: number; hp: number; maxHp: number; mana: number; maxMana: number;
   inv: number; blinkCd: number; cdA: number; cdB: number; face: number; moving: boolean; dead: boolean;
@@ -76,13 +79,14 @@ export interface Player {
   cls: ClassId; speedMul: number; dmgBonus: number; stillT: number; wardT: number;
 }
 // ------------------------------------------------------------------ the five wizards
-export type ClassId = 'spellwright' | 'pyromancer' | 'frostbinder' | 'graveknight' | 'stormcaller';
-export const CLASSES: Record<ClassId, { name: string; desc: string; spells: [string[], string[]]; owned: string[]; hearts: number; speed: number; relic: string; tint: number }> = {
+export type ClassId = 'spellwright' | 'pyromancer' | 'frostbinder' | 'graveknight' | 'stormcaller' | 'hollowheir';
+export const CLASSES: Record<ClassId, { name: string; desc: string; spells: [string[], string[]]; owned: string[]; hearts: number; speed: number; relic: string; tint: number; locked?: string }> = {
   spellwright: { name: 'Spellwright', desc: 'Balanced. Starts with Ember Bolt and Thorn Seed, and Lucky Ash (an extra card to choose from).', spells: [['ember'], ['thorn']], owned: ['ember', 'thorn'], hearts: 0, speed: 1, relic: 'luckyash', tint: 0xffffff },
   pyromancer: { name: 'Pyromancer', desc: 'Burning bolts and meteors. Foes she kills burst into sparks (Volatile Ash).', spells: [['ember', 'burn'], ['meteor']], owned: ['ember', 'burn', 'meteor'], hearts: 0, speed: 1, relic: 'volatile', tint: 0xffb08a },
   frostbinder: { name: 'Frostbinder', desc: 'Slowing shards and a frost nova. Foe shots crawl near him (Cracked Hourglass).', spells: [['frost'], ['frost', 'nova']], owned: ['frost', 'frost', 'nova'], hearts: 0, speed: 1, relic: 'hourglass', tint: 0xa8d8ff },
   graveknight: { name: 'Grave Knight', desc: 'Two more hearts but slower. Bone lances and a wisp; thorns burst from him when hit.', spells: [['bone'], ['wisp']], owned: ['bone', 'wisp'], hearts: 2, speed: 0.88, relic: 'thornhide', tint: 0xd8d0b8 },
   stormcaller: { name: 'Stormcaller', desc: 'One heart fewer, but lightning-fast. Sparks and arcs; her blink scorches (Phantom Step).', spells: [['spark'], ['arc', 'chain']], owned: ['spark', 'arc', 'chain'], hearts: -1, speed: 1.1, relic: 'phantom', tint: 0xd0b8ff },
+  hollowheir: { name: 'Hollow Heir', desc: 'The King\u2019s empty crown, worn. Void orbs and gravity; a bone hound at heel. Unlocked by defeating the Hollow King.', spells: [['void', 'gravity'], ['scythe']], owned: ['void', 'gravity', 'scythe'], hearts: 0, speed: 1, relic: 'f_hound', tint: 0x9a8aff, locked: 'king' },
 };
 export type RoomKind = 'fight' | 'elite' | 'treasure' | 'shrine' | 'shop' | 'event' | 'boss';
 export interface StormWorld {
@@ -101,6 +105,10 @@ export interface StormWorld {
   bossHits: number;
   /** Set when the final boss falls (the run is won unless you go on into the Abyss). */
   won: boolean;
+  /** Boss rush: every room is a boss. */
+  rush: boolean;
+  /** Little allies from familiar relics, circling you. */
+  familiars: { kind: string; x: number; y: number; cd: number; ang: number }[];
 }
 
 // ------------------------------------------------------------------ randomness (seeded)
@@ -115,15 +123,16 @@ const pick = <T>(w: StormWorld, a: T[]) => a[Math.floor(rand(w) * a.length)];
 // ------------------------------------------------------------------ acts
 export interface ActDef {
   name: string; biome: string; bossBiome: string; tune: string; bossTune: string;
-  boss: FoeType; bossName: string; roster: FoeType[]; tough: FoeType[];
+  boss: FoeType; bossName: string; epithet: string; roster: FoeType[]; tough: FoeType[];
   liquid: number; trees: boolean; blurb: string;
 }
 export const ACTS: ActDef[] = [
-  { name: 'The Greenwood', biome: 'greenwood', bossBiome: 'elderglen', tune: 'stormwood', bossTune: 'stormstag', boss: 'stag', bossName: 'The Old Stag', roster: ['boar', 'thornling', 'xbow', 'wolf'], tough: ['hag'], liquid: T_WATER, trees: true, blurb: 'Spellfire in the birches. Something old waits in the ring of oaks.' },
-  { name: 'The Bone Cellars', biome: 'cellars', bossBiome: 'catacombs', tune: 'cellars', bossTune: 'forges', boss: 'warden', bossName: 'The Bone Warden', roster: ['ghoul', 'spitter', 'xbow', 'ghoul'], tough: ['necro', 'bellringer'], liquid: T_BOG, trees: false, blurb: 'Down the stair, into the ossuary. The dead keep their own hours here.' },
-  { name: 'The Frost Ossuary', biome: 'frost', bossBiome: 'frost', tune: 'frost', bossTune: 'starfall', boss: 'lich', bossName: 'The Frost Lich', roster: ['wight', 'wisp', 'ghoul', 'shade'], tough: ['gargoyle', 'bellringer'], liquid: T_ICE, trees: false, blurb: 'Ice underfoot: you slide. The cold has a voice, and it is counting.' },
-  { name: 'The Bloodmoon Cathedral', biome: 'cathedral', bossBiome: 'cathedral', tune: 'abbey', bossTune: 'cathedral', boss: 'choir', bossName: 'The Red Choir', roster: ['cultist', 'imp', 'flagellant', 'wisp'], tough: ['bloodarcher', 'necro'], liquid: T_BLOOD, trees: false, blurb: 'The bells ring for you. Every hymn here is a pattern of knives.' },
-  { name: 'The Hollow Throne', biome: 'throne', bossBiome: 'throne', tune: 'throne', bossTune: 'throne', boss: 'king', bossName: 'The Hollow King', roster: [], tough: [], liquid: T_LAVA, trees: false, blurb: 'At the bottom of everything, a crown with nothing under it.' },
+  { name: 'The Greenwood', biome: 'greenwood', bossBiome: 'elderglen', tune: 'stormwood', bossTune: 'stormstag', boss: 'stag', bossName: 'The Old Stag', epithet: 'The Greenwood\u2019s eldest', roster: ['boar', 'thornling', 'xbow', 'wolf'], tough: ['hag'], liquid: T_WATER, trees: true, blurb: 'Spellfire in the birches. Something old waits in the ring of oaks.' },
+  { name: 'The Bone Cellars', biome: 'cellars', bossBiome: 'catacombs', tune: 'cellars', bossTune: 'forges', boss: 'warden', bossName: 'The Bone Warden', epithet: 'Keeper of the ossuary keys', roster: ['ghoul', 'spitter', 'xbow', 'ghoul'], tough: ['necro', 'bellringer'], liquid: T_BOG, trees: false, blurb: 'Down the stair, into the ossuary. The dead keep their own hours here.' },
+  { name: 'The Frost Ossuary', biome: 'frost', bossBiome: 'frost', tune: 'frost', bossTune: 'starfall', boss: 'lich', bossName: 'The Frost Lich', epithet: 'The cold that counts', roster: ['wight', 'wisp', 'ghoul', 'shade'], tough: ['gargoyle', 'bellringer'], liquid: T_ICE, trees: false, blurb: 'Ice underfoot: you slide. The cold has a voice, and it is counting.' },
+  { name: 'The Clockwork Forges', biome: 'forges', bossBiome: 'forges', tune: 'forges', bossTune: 'catacombs', boss: 'orrery', bossName: 'The Brass Orrery', epithet: 'A heaven made of gears', roster: ['automaton', 'gearspider', 'slag', 'gearspider'], tough: ['anvil', 'automaton'], liquid: T_LAVA, trees: false, blurb: 'Hammers that ring without hands. Everything here turns, and everything that turns fires.' },
+  { name: 'The Bloodmoon Cathedral', biome: 'cathedral', bossBiome: 'cathedral', tune: 'abbey', bossTune: 'cathedral', boss: 'choir', bossName: 'The Red Choir', epithet: 'A hymn of knives', roster: ['cultist', 'imp', 'flagellant', 'wisp'], tough: ['bloodarcher', 'necro'], liquid: T_BLOOD, trees: false, blurb: 'The bells ring for you. Every hymn here is a pattern of knives.' },
+  { name: 'The Hollow Throne', biome: 'throne', bossBiome: 'throne', tune: 'throne', bossTune: 'throne', boss: 'king', bossName: 'The Hollow King', epithet: 'King of nothing', roster: [], tough: [], liquid: T_LAVA, trees: false, blurb: 'At the bottom of everything, a crown with nothing under it.' },
 ];
 export const ROOMS_PER_ACT = 3;
 
@@ -139,7 +148,9 @@ type Pat =
   | { kind: 'curtain'; n: number; speed: number; color?: number }
   | { kind: 'summon'; type: FoeType; n: number; cap: number }
   | { kind: 'charge'; speed: number; wind: number; slam?: number }
-  | { kind: 'teleport' };
+  | { kind: 'teleport' }
+  | { kind: 'orbitals'; n: number; rad: number; spin: number; life: number; speed: number; color?: number }
+  | { kind: 'mine'; color?: number };
 /** Fired on the music: every `every` eighth notes (offset by `at`). */
 type BeatPat = Pat & { every: number; at?: number };
 /** Fired on a clock: every `secs` seconds. */
@@ -173,6 +184,11 @@ const FOES: Partial<Record<FoeType, FoeDef>> = {
   flagellant: { hp: 50, r: 11, speed: 65, move: 'chase', timed: [{ kind: 'charge', secs: 3, speed: 420, wind: 0.55, slam: 8 }], cinders: 3 },
   // summoned by the King
   ashling: { hp: 18, r: 9, speed: 115, move: 'swarm', cinders: 1 },
+  // act IV: the Clockwork Forges
+  automaton: { hp: 55, r: 11, speed: 45, move: 'keep', keep: 250, beat: [{ kind: 'ring', every: 8, n: 10, speed: 110, rot: 0.3, color: 0xd8a84a }], cinders: 3 },
+  gearspider: { hp: 22, r: 9, speed: 110, move: 'swarm', timed: [{ kind: 'mine', secs: 2.2, color: 0xffa040 }], cinders: 2 },
+  slag: { hp: 45, r: 11, speed: 40, move: 'keep', keep: 220, timed: [{ kind: 'lob', secs: 2.4, speed: 220, color: 0xff6a1a }], cinders: 3 },
+  anvil: { hp: 120, r: 13, speed: 30, move: 'still', beat: [{ kind: 'gapring', every: 16, n: 30, speed: 100, gap: 5, color: 0xc8c8d0 }, { kind: 'orbitals', every: 16, at: 8, n: 6, rad: 34, spin: 3, life: 1.4, speed: 120, color: 0xd8a84a }], cinders: 7 },
   // a room's furniture: a brazier that never moves and spits fire on the beat
   brazier: { hp: 70, r: 12, speed: 0, move: 'still', beat: [{ kind: 'spiral', every: 2, arms: 4, speed: 80, turn: 0.27, color: 0xff7a2a }], cinders: 5 },
 };
@@ -204,6 +220,11 @@ const BOSSES: Partial<Record<FoeType, BossDef>> = {
     { until: 0.5, beat: [{ kind: 'beam', every: 16, n: 4, warn: 1, dur: 0.55, rot: Math.PI / 8, color: 0xffb060 }, { kind: 'spiral', every: 1, arms: 3, speed: 110, turn: 0.2, color: C.ash }], timed: [{ kind: 'charge', secs: 6, speed: 460, wind: 0.85, slam: 16 }] },
     { until: 0.25, beat: [{ kind: 'curtain', every: 8, n: 16, speed: 95, color: C.void }, { kind: 'ring', every: 4, n: 18, speed: 110, alt: true, color: C.ash }, { kind: 'aimed', every: 8, at: 2, n: 5, spread: 0.13, speed: 190, color: 0xffd06a }], timed: [{ kind: 'teleport', secs: 4.5 }] },
     { until: 0, beat: [{ kind: 'spiral', every: 1, arms: 2, speed: 125, turn: 0.17, color: C.ash }, { kind: 'spiral', every: 1, arms: 2, speed: 110, turn: 0.17, counter: true, color: C.void }, { kind: 'gapring', every: 8, n: 36, speed: 115, gap: 6, color: C.gold }, { kind: 'beam', every: 16, at: 8, n: 2, warn: 0.9, dur: 0.5, aim: true, color: 0xff4a2a }], timed: [{ kind: 'summon', secs: 9, type: 'ashling', n: 2, cap: 4 }, { kind: 'teleport', secs: 5.5 }] },
+  ] },
+  orrery: { hp: 2800, r: 22, speed: 40, cinders: 65, phases: [
+    { until: 0.66, beat: [{ kind: 'orbitals', every: 8, n: 8, rad: 60, spin: 2, life: 2.4, speed: 120, color: 0xffd06a }, { kind: 'ring', every: 4, at: 2, n: 10, speed: 100, rot: 0.2, color: 0xd8a84a }], timed: [] },
+    { until: 0.33, beat: [{ kind: 'orbitals', every: 16, n: 10, rad: 50, spin: 2.5, life: 2, speed: 130, color: 0xffd06a }, { kind: 'orbitals', every: 16, at: 4, n: 14, rad: 95, spin: -1.8, life: 2.6, speed: 110, color: 0x8ad0ff }, { kind: 'aimed', every: 8, at: 2, n: 5, spread: 0.14, speed: 175, color: 0xff8a3a }, { kind: 'beam', every: 16, at: 12, n: 2, warn: 1, dur: 0.5, rot: 0.6, color: 0xffd06a }], timed: [] },
+    { until: 0, beat: [{ kind: 'orbitals', every: 4, n: 12, rad: 70, spin: 3, life: 1.6, speed: 150, color: 0xffd06a }, { kind: 'spiral', every: 1, arms: 3, speed: 100, turn: 0.19, color: 0xd8a84a }, { kind: 'gapring', every: 16, at: 8, n: 34, speed: 115, gap: 5, color: 0x8ad0ff }], timed: [{ kind: 'summon', secs: 9, type: 'gearspider', n: 2, cap: 4 }] },
   ] },
   // waits at the bottom of the Abyss: the book that was never written
   unwritten: { hp: 6000, r: 22, speed: 45, cinders: 0, phases: [
@@ -289,7 +310,7 @@ function freeSpot(w: StormWorld, r: number, farFrom: { x: number; y: number }, m
 }
 
 // ------------------------------------------------------------------ run setup
-export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId }
+export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId; rush?: boolean }
 export function newRun(seed: number | RunOpts): StormWorld {
   const o: RunOpts = typeof seed === 'number' ? { seed } : seed;
   const diff = o.diff ?? 'normal';
@@ -300,7 +321,7 @@ export function newRun(seed: number | RunOpts): StormWorld {
     seed: o.seed | 0, time: 0, map: [], diff, endless: !!o.endless, loop: 0, act: 0, room: 0, kind: 'fight',
     player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0 },
     foes: [], bullets: [], hazards: [], pickups: [], fx: [], spells: [[...C.spells[0]], [...C.spells[1]]], waves: [], waveDelay: 0, cleared: false, nextId: 1, sounds: [], echoes: [],
-    score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false,
+    score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
   };
  addRelic(w, C.relic);
   enterRoom(w, 1, 'fight');
@@ -316,7 +337,7 @@ const bulletSpeed = (w: StormWorld) => DIFFICULTY[w.diff].speed * (1 + w.loop * 
 export function enterRoom(w: StormWorld, room: number, kind?: RoomKind) {
   w.room = room;
   const act = ACTS[w.act];
-  w.kind = act.roster.length === 0 || room > ROOMS_PER_ACT ? 'boss' : kind ?? 'fight';
+  w.kind = w.rush || act.roster.length === 0 || room > ROOMS_PER_ACT ? 'boss' : kind ?? 'fight';
   if (w.kind === 'boss') w.room = ROOMS_PER_ACT + 1;
   w.map = makeArena(w, w.kind === 'boss');
   w.foes = []; w.bullets = []; w.hazards = []; w.pickups = []; w.echoes = []; w.cleared = false;
@@ -398,7 +419,7 @@ function bullet(w: StormWorld, b: Partial<Bullet> & { x: number; y: number; vx: 
   const full: Bullet = {
     id: w.nextId++, age: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: b.friendly ? 0 : 0.12,
     bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0,
-    splinter: false, shock: false, siphon: 0, leech: 0, ...b,
+    splinter: false, shock: false, siphon: 0, leech: 0, orbitFoe: null, ...b,
   };
   w.bullets.push(full);
   return full;
@@ -487,6 +508,22 @@ function runPat(w: StormWorld, f: Foe, pt: Pat) {
     }
     case 'charge':
       if (f.state === 'move') { f.state = 'wind'; f.st = pt.wind; f.vx = pt.speed; f.slam = pt.slam ?? 0; w.sounds.push(f.boss ? 'boom' : 'hit'); }
+      break;
+    case 'orbitals': {
+      // planets: a ring of shots that circles the caster, then flies outward
+      const n = dens(w, pt.n);
+      for (let i = 0; i < n; i++) {
+        const a = f.ang + (i / n) * Math.PI * 2;
+        const b = foeShot(w, f.x + Math.cos(a) * pt.rad, f.y + Math.sin(a) * pt.rad, a, 0, pt.color, 6);
+        b.orbitFoe = { id: f.id, ang: a, rad: pt.rad, spin: pt.spin, t: pt.life, speed: pt.speed * bulletSpeed(w) };
+        b.life = pt.life + 8;
+      }
+      f.ang += 0.4;
+      w.sounds.push('freeze');
+      break;
+    }
+    case 'mine':
+      w.hazards.push({ kind: 'pool', x: f.x, y: f.y, r: 20, ang: 0, len: 0, warn: 0, life: 2.6, t: 0, color: pt.color ?? 0xffa040 });
       break;
     case 'teleport': {
       const to = freeSpot(w, f.r, p, 160);
@@ -628,6 +665,24 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     }
   }
 
+  // familiars circle you and join the fight
+  const kinds = p.relics.filter((r) => r.startsWith('f_'));
+  if (w.familiars.length !== kinds.length) w.familiars = kinds.map((k, i) => ({ kind: k, x: p.x, y: p.y, cd: 0.5 + i * 0.2, ang: (i / kinds.length) * Math.PI * 2 }));
+  for (const fam of w.familiars) {
+    fam.ang += dt * 1.6;
+    const tx = p.x + Math.cos(fam.ang) * 34, ty = p.y + Math.sin(fam.ang) * 22 - 10;
+    fam.x += (tx - fam.x) * Math.min(1, dt * 8); fam.y += (ty - fam.y) * Math.min(1, dt * 8);
+    fam.cd -= dt;
+    if (fam.cd > 0 || p.dead) continue;
+    let best: Foe | null = null, bd = fam.kind === 'f_hound' ? 90 : 360;
+    for (const f of w.foes) { const d2 = Math.hypot(f.x - fam.x, f.y - fam.y); if (f.state !== 'spawn' && d2 < bd) { bd = d2; best = f; } }
+    if (!best) { fam.cd = 0.2; continue; }
+    const a = aimAt(fam, best);
+    if (fam.kind === 'f_imp') { bullet(w, { x: fam.x, y: fam.y, vx: Math.cos(a) * 430, vy: Math.sin(a) * 430, r: 4, dmg: 6, life: 1, friendly: true, color: 0xff8a3a, burn: 3 }); fam.cd = 0.5; }
+    else if (fam.kind === 'f_owl') { bullet(w, { x: fam.x, y: fam.y, vx: Math.cos(a) * 380, vy: Math.sin(a) * 380, r: 5, dmg: 5, life: 1.2, friendly: true, color: 0x9fe0ff, slow: 0.5, pierce: 1 }); fam.cd = 0.85; }
+    else { hurtFoe(w, best, 12, 0xe8e0c8); w.fx.push({ kind: 'ring', x: best.x, y: best.y, color: 0xe8e0c8, t: w.time, dur: 0.2, r: 16 }); fam.x = best.x - Math.cos(a) * 12; fam.y = best.y - Math.sin(a) * 12; fam.cd = 0.6; }
+  }
+
   // waves
   if (!w.foes.length && w.waves.length) {
     w.waveDelay -= dt;
@@ -737,7 +792,13 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     b.age += dt;
     b.wake = Math.max(0, b.wake - dt);
     const tdt = slowField && !b.friendly && Math.hypot(b.x - p.x, b.y - p.y) < 90 ? dt * 0.66 : dt;
-    if (b.orbit) {
+    if (b.orbitFoe) {
+      const o = b.orbitFoe, host = w.foes.find((f) => f.id === o.id);
+      o.t -= tdt;
+      o.ang += o.spin * tdt;
+      if (host) { b.x = host.x + Math.cos(o.ang) * o.rad; b.y = host.y + Math.sin(o.ang) * o.rad; }
+      if (o.t <= 0 || !host) { b.vx = Math.cos(o.ang) * o.speed; b.vy = Math.sin(o.ang) * o.speed; b.orbitFoe = null; b.life = 8; }
+    } else if (b.orbit) {
       b.orbit.t -= dt;
       b.orbit.ang += b.orbit.spin * dt;
       b.x = p.x + Math.cos(b.orbit.ang) * b.orbit.rad;
@@ -925,7 +986,7 @@ function killed(w: StormWorld, f: Foe) {
   w.stats.kills++;
   p.killsSince++;
   w.score += (f.boss ? 1000 * (w.act + 1) : (f.elite ? 60 : 10) * (w.act + 1)) * scoreMul(w);
-  w.fx.push({ kind: 'die', x: f.x, y: f.y, color: f.boss ? 0xffd06a : f.elite ? 0xffb020 : 0xff8a6a, t: w.time, dur: f.boss ? 1.4 : 0.5, r: f.r });
+  w.fx.push({ kind: 'die', x: f.x, y: f.y, color: f.boss ? 0xffd06a : f.elite ? 0xffb020 : 0xff8a6a, t: w.time, dur: f.boss ? 1.4 : 0.5, r: f.r, src: f.type });
   w.sounds.push(f.boss ? 'portal' : 'die');
   if (f.boss && w.stats.hitsTaken === w.bossHits) w.stats.flawless++;
   if (f.type === 'unwritten') w.stats.secret++;

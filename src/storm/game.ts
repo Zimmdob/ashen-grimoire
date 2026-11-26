@@ -18,11 +18,24 @@ const LOOK: { dark: number; tint: number; weather: 'leaves' | 'dust' | 'snow' | 
   { dark: 0.16, tint: 0x1a2a10, weather: 'leaves', back: 0x0c140a },
   { dark: 0.42, tint: 0x0a0610, weather: 'dust', back: 0x0a070c },
   { dark: 0.36, tint: 0x0a1020, weather: 'snow', back: 0x060a14 },
+  { dark: 0.36, tint: 0x140a04, weather: 'embers', back: 0x100804 },
   { dark: 0.45, tint: 0x14040a, weather: 'ash', back: 0x100408 },
   { dark: 0.4, tint: 0x140804, weather: 'embers', back: 0x120604 },
 ];
 /** Sprites for things the main game draws under another name. */
-const SPRITE_OF: Partial<Record<string, string>> = { brazier: 'effigy' };
+const SPRITE_OF: Partial<Record<string, string>> = { brazier: 'effigy', f_imp: 'imp', f_owl: 'voidmoth', f_hound: 'hound' };
+/** Names and a line each, for the Bestiary. */
+const FOE_INFO: Record<string, [string, string]> = {
+  boar: ['Tusked Boar', 'Winds up, then charges in a straight line.'], thornling: ['Thornling', 'Rings of thorns on the beat.'], xbow: ['Poacher', 'Aimed three-bolt fans.'], wolf: ['Grey Wolf', 'Fast, and comes in packs.'], hag: ['Briar Witch', 'A slow two-armed spiral.'],
+  ghoul: ['Ghoul', 'Swarms you.'], spitter: ['Acid Spitter', 'Lobs acid that pools on the floor.'], necro: ['Necromancer', 'Raises ghouls from the floor.'], bellringer: ['Bellringer', 'Walls of shot with one gap: find it.'],
+  wight: ['Frost Wight', 'Cold aimed volleys.'], wisp: ['Wisp', 'Slow shots that follow you.'], gargoyle: ['Gargoyle', 'Sleeps until you come close.'], shade: ['Shade', 'Vanishes and reappears, firing.'],
+  automaton: ['Brass Automaton', 'Turning rings of gear-shot.'], gearspider: ['Gear Spider', 'Scuttles close and drops burning mines.'], slag: ['Slag Golem', 'Lobs molten slag.'], anvil: ['Living Anvil', 'Ringing walls and little orbiting moons.'],
+  cultist: ['Cultist', 'Three-armed spirals.'], bloodarcher: ['Blood Archer', 'Warned beams across the room.'], imp: ['Imp', 'Blinks about, bursting into rings.'], flagellant: ['Flagellant', 'Charges, then scatters shot.'],
+  brazier: ['Brazier', 'Room furniture that spits fire. Breakable.'], ashling: ['Ashling', 'The King\u2019s little embers.'],
+  stag: ['The Old Stag', 'Boss of the Greenwood.'], warden: ['The Bone Warden', 'Boss of the Bone Cellars.'], lich: ['The Frost Lich', 'Boss of the Frost Ossuary.'], orrery: ['The Brass Orrery', 'Boss of the Clockwork Forges: its shots orbit it like planets.'],
+  choir: ['The Red Choir', 'Boss of the Bloodmoon Cathedral.'], king: ['The Hollow King', 'At the bottom of the Reach.'], unwritten: ['The Unwritten Page', 'At the bottom of the Abyss.'],
+};
+interface Shard { x: number; y: number; vx: number; vy: number; c: number; life: number; age: number; s: number }
 
 interface Mote { x: number; y: number; vx: number; vy: number; life: number; age: number; size: number; color: number; spin: number }
 
@@ -163,6 +176,17 @@ class Cinderstorm {
   private seenFx = new WeakSet<object>();
   private announced = -1;
   private deadT = 0;
+  private shardG = new Graphics();
+  private shards: Shard[] = [];
+  private pixCache = new Map<string, { x: number; y: number; c: number }[]>();
+  private punch = 0;
+  private lightning = 0;
+  private nextBolt = 0;
+  private muzzle = 0;
+  private lastShots = 0;
+  private famSprites = new Map<string, Sprite>();
+  private rush = false;
+  private seen: string[] = (() => { try { return JSON.parse(localStorage.getItem('ashen-storm-seen') || '[]') as string[]; } catch { return []; } })();
 
   constructor(private onExit: () => void) {}
 
@@ -187,7 +211,7 @@ class Cinderstorm {
     this.darkSprite = new Sprite(this.darkRT);
     this.darkSprite.scale.set(2);
     // the dark falls on the ground only: bodies, traps and shots always stay readable
-    this.world.addChild(this.mapSprite, this.liqSprite, this.darkSprite, this.wallG, this.hazG, this.shadowG, this.unitLayer, this.glowLayer, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
+    this.world.addChild(this.mapSprite, this.liqSprite, this.darkSprite, this.wallG, this.hazG, this.shadowG, this.unitLayer, this.glowLayer, this.shardG, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
     this.vignette = new Sprite(Texture.from(vignetteCanvas()));
     for (let i = 0; i < 5; i++) { const g = new Sprite(this.glow); g.anchor.set(0.5); this.backGlows.push(g); this.backC.addChild(g); }
     // the vignette darkens only the backdrop around the arena, never the fight itself
@@ -209,7 +233,8 @@ class Cinderstorm {
 
   private startRun() {
     const seed = this.daily ? dailySeed(today()) : this.seed;
-    this.w = newRun({ seed, diff: this.daily ? 'normal' : this.diff, endless: this.daily ? false : this.endless, cls: this.cls });
+    this.w = newRun({ seed, diff: this.daily ? 'normal' : this.diff, endless: this.daily || this.rush ? false : this.endless, cls: this.cls, rush: this.rush && !this.daily });
+    this.shards = [];
     this.seed = (this.seed * 1103515245 + 12345) | 0;
     this.owned = [...CLASSES[this.cls].owned];
     this.announced = -1;
@@ -378,11 +403,32 @@ class Cinderstorm {
       if (f.kind === 'hurt') { this.flash = { a: 0.35, color: 0xff1a2a }; this.hitStop = Math.max(this.hitStop, 0.07); this.shake = Math.max(this.shake, 9); }
       if (f.kind === 'nova') { this.flash = { a: 0.45, color: f.color }; this.shake = Math.max(this.shake, 12); }
       if (f.kind === 'phase') { this.flash = { a: 0.5, color: 0xffffff }; this.hitStop = 0.3; this.shake = 16; this.banner(`Phase ${f.text ?? ''}`, bossOf(this.w).name); }
-      if (f.kind === 'die' && (f.r ?? 0) > 18) { this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; }
+      if (f.kind === 'die' && (f.r ?? 0) > 18) { this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; this.punch = 0.08; }
+      if (f.kind === 'phase' || f.kind === 'nova') this.punch = Math.max(this.punch, 0.05);
+      // the fallen shatter into the pixels they were drawn with
+      if (f.kind === 'die') this.shatter(f.src ?? 'wizard', f.x, f.y, f.src ? ((f.r ?? 10) > 18 ? 3.2 : (f.r ?? 10) > 13 ? 2.6 : 2) : 2);
     }
+    for (const f of this.w.foes) if (!this.seen.includes(f.type)) { this.seen.push(f.type); try { localStorage.setItem('ashen-storm-seen', JSON.stringify(this.seen)); } catch { /* storage unavailable */ } }
     // a boss arriving gets a title card
     const boss = this.w.foes.find((f) => f.boss);
-    if (boss && this.announced !== boss.id) { this.announced = boss.id; this.banner(bossOf(this.w).name, ['The Greenwood’s eldest', 'Keeper of the ossuary keys', 'The cold that counts', 'A hymn of knives', 'King of nothing', 'The book that was never written'][boss.type === 'unwritten' ? 5 : this.w.act]); }
+    if (boss && this.announced !== boss.id) { this.announced = boss.id; this.punch = 0.06; this.banner(bossOf(this.w).name, boss.type === 'unwritten' ? 'The book that was never written' : ACTS[this.w.act].epithet); }
+  }
+
+  /** Break a sprite into its pixels and fling them outward. */
+  private shatter(key: string, x: number, y: number, scale: number) {
+    let px = this.pixCache.get(key);
+    if (!px) {
+      px = [];
+      const c = (this.sprites[SPRITE_OF[key] ?? key] ?? this.sprites.ghoul).canvas;
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      for (let yy = 0; yy < c.height; yy++) for (let xx = 0; xx < c.width; xx++) { const i = (yy * c.width + xx) * 4; if (d[i + 3] > 100) px.push({ x: xx - c.width / 2, y: yy - c.height * 0.75, c: (d[i] << 16) | (d[i + 1] << 8) | d[i + 2] }); }
+      this.pixCache.set(key, px);
+    }
+    for (const q of px) {
+      const ox = q.x * scale, oy = q.y * scale, a = Math.atan2(oy, ox) + (Math.random() - 0.5) * 0.6, sp = 40 + Math.random() * 120 + Math.hypot(ox, oy) * 2;
+      this.shards.push({ x: x + ox, y: y + oy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, c: q.c, life: 0.6 + Math.random() * 0.6, age: 0, s: scale });
+    }
+    if (this.shards.length > 3000) this.shards.splice(0, this.shards.length - 3000);
   }
   private bannerT = 0;
   private banner(title: string, sub: string) {
@@ -443,8 +489,17 @@ class Cinderstorm {
     this.scale = Math.min(sw / AW, (sh - 52) / AH);
     this.shake *= 0.88;
     const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
-    this.world.scale.set(this.scale);
-    this.world.position.set(Math.round((sw - AW * this.scale) / 2 + sx), Math.round((sh - 46 - AH * this.scale) / 2 + sy));
+    // camera punch: a quick zoom toward the centre on big moments
+    this.punch *= 0.9;
+    const zs = this.scale * (1 + this.punch);
+    this.world.scale.set(zs);
+    this.world.position.set(Math.round((sw - AW * zs) / 2 + sx), Math.round((sh - 46 - AH * zs) / 2 + sy));
+    // the cathedral has a storm overhead
+    if (look.weather === 'ash' && this.mode === 'play') {
+      if (now > this.nextBolt) { this.nextBolt = now + 5000 + Math.random() * 7000; this.lightning = 1; play('boom'); }
+      this.lightning *= 0.86;
+      if (this.lightning > 0.05 && Math.random() < 0.3) this.flash = { a: Math.max(this.flash.a, this.lightning * 0.25), color: 0xdde8ff };
+    }
     if (Math.floor(now / 100) % 2 === 0 && this.liqSprite.texture) { drawLava(this.liqCanvas, this.snap, now / 1000); this.liqSprite.texture.source.update(); }
 
     // hazards: acid pools, and beams (a thin flickering warning line first, then the beam)
@@ -505,6 +560,10 @@ class Cinderstorm {
     // shadows under everyone, auras for champions, stars over the stunned
     const sg = this.shadowG;
     sg.clear();
+    // rune circles: a slow ritual ring under every boss, a small one under you while you cast
+    for (const f of w.foes) if (f.boss && f.state !== 'spawn') runeCircle(sg, f.x, f.y, f.r * 2.6, now / 2400, [0x8cff9a, 0xe8e0c8, 0x9fe0ff, 0xffd06a, 0xff3a5a, 0xff8a3a][w.act] ?? 0xffd06a, 0.45);
+    const casting = this.inp.fireA || this.inp.fireB;
+    if (!p.dead && casting) runeCircle(sg, p.x, p.y + 2, 18, -now / 700, CLASSES[w.player.cls].tint === 0xffffff ? 0xb48cff : CLASSES[w.player.cls].tint, 0.5);
     if (!p.dead) sg.ellipse(p.x, p.y + 4, 9, 4).fill({ color: 0x000000, alpha: 0.4 });
     for (const f of w.foes) {
       if (f.state === 'spawn') continue;
@@ -548,6 +607,28 @@ class Cinderstorm {
     for (const b of bs) if (b.friendly && !b.orbit && !b.target) g.moveTo(b.x - b.vx * 0.035, b.y - b.vy * 0.035).lineTo(b.x, b.y).stroke({ width: b.r * 1.1, color: b.color, alpha: 0.3 });
     this.drawLight(now, look);
     this.drawWeather(dt, look.weather);
+    // shards from the fallen
+    const shg = this.shardG;
+    shg.clear();
+    for (let i = this.shards.length - 1; i >= 0; i--) {
+      const q = this.shards[i];
+      q.age += dt;
+      if (q.age > q.life) { this.shards.splice(i, 1); continue; }
+      q.vx *= 0.94; q.vy = q.vy * 0.94 + 260 * dt;
+      q.x += q.vx * dt; q.y += q.vy * dt;
+      shg.rect(q.x, q.y, q.s, q.s).fill({ color: q.c, alpha: 1 - q.age / q.life });
+    }
+    // familiars
+    const seenF = new Set<string>();
+    for (const fam of w.familiars) {
+      seenF.add(fam.kind);
+      let sp = this.famSprites.get(fam.kind);
+      if (!sp) { sp = new Sprite(Texture.from((this.sprites[SPRITE_OF[fam.kind] ?? 'imp'] ?? this.sprites.imp).canvas)); sp.anchor.set(0.5, 0.75); this.famSprites.set(fam.kind, sp); this.unitLayer.addChild(sp); }
+      sp.position.set(fam.x, fam.y + Math.sin(now / 200 + fam.ang) * 2);
+      sp.scale.set(fam.x < p.x ? 1.4 : -1.4, 1.4);
+      sp.visible = !p.dead;
+    }
+    for (const [k, sp] of this.famSprites) if (!seenF.has(k)) { sp.destroy(); this.famSprites.delete(k); }
     for (const k of w.pickups) {
       if (k.kind === 'cinder') g.poly([k.x, k.y - 4, k.x + 3, k.y, k.x, k.y + 4, k.x - 3, k.y]).fill({ color: 0xffb04a }).stroke({ width: 1, color: 0x5a2a0a });
       else g.circle(k.x, k.y, 6).fill({ color: 0xff3a4a }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.6 + 0.4 * Math.sin(now / 120) });
@@ -611,6 +692,9 @@ class Cinderstorm {
     const w = this.w, p = w.player;
     const lights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
     if (!p.dead) lights.push({ x: p.x, y: p.y, r: 250 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.14 });
+    if (w.stats.shots !== this.lastShots) { this.lastShots = w.stats.shots; this.muzzle = 1; }
+    this.muzzle *= 0.75;
+    if (!p.dead && this.muzzle > 0.05) lights.push({ x: p.x + Math.cos(p.face) * 16, y: p.y + Math.sin(p.face) * 16, r: 60, a: this.muzzle, color: spellStats(w.spells[0])?.color ?? 0xffffff, glow: 0.35 * this.muzzle });
     for (const b of w.bullets) {
       if (lights.length > 260) break;
       // every shot lights the floor; only some glow, so dense volleys don't wash out
@@ -730,20 +814,30 @@ class Cinderstorm {
         <li>Controller: sticks move and aim, triggers fire, <kbd>A</kbd> blink, <kbd>B</kbd> Nova, <kbd>X</kbd> focus</li>
       </ul>
       <h3>Who descends?</h3>
-      <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}"><b>${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`).join('')}</div>
+      <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => { const lock = CLASSES[c].locked && !this.ach.includes(CLASSES[c].locked!); return `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}" ${lock ? 'disabled' : ''}><b>${lock ? '🔒 ' : ''}${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`; }).join('')}</div>
       <h3>How fierce?</h3>
       <div class="sdiff">${(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => `<button type="button" class="btn ${this.diff === d ? 'ember' : ''}" data-d="${d}"><b>${DIFFICULTY[d].name}</b><small>${esc(DIFFICULTY[d].desc)}</small>${b[d] ? `<small>Best: ${b[d]!.toLocaleString()}</small>` : ''}</button>`).join('')}</div>
       <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
       <label class="sendless"><input type="checkbox" id="sEndless" ${this.endless ? 'checked' : ''}> The Abyss: after the Hollow King, loop back to the start, harder each time, for as long as you last.${this.best.abyss ? ` (Deepest: Abyss ${this.best.abyss})` : ''}</label>
-      <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
+      <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="rush">Boss rush</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="beasts">Bestiary ${this.seen.filter((x) => FOE_INFO[x]).length}/${Object.keys(FOE_INFO).length}</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
     this.on('[data-bright]', (el) => { this.setBright(el.dataset.bright as Bright); this.menu(); });
     this.on('[data-cls]', (el) => { this.cls = el.dataset.cls as ClassId; this.best.cls = this.cls; saveBest(this.best); this.menu(); });
-    this.on('[data-s="daily"]', () => { this.daily = true; this.startRun(); });
+    this.on('[data-s="daily"]', () => { this.daily = true; this.rush = false; this.startRun(); });
+    this.on('[data-s="rush"]', () => { this.daily = false; this.rush = true; this.startRun(); });
+    this.on('[data-s="beasts"]', () => this.bestiary());
     this.on('[data-s="ach"]', () => this.achievements());
     this.on('[data-d]', (el) => { this.diff = el.dataset.d as Difficulty; this.menu(); });
     this.panel.querySelector<HTMLInputElement>('#sEndless')!.addEventListener('change', (e) => { this.endless = (e.target as HTMLInputElement).checked; });
-    this.on('[data-s="go"]', () => { this.daily = false; this.startRun(); });
+    this.on('[data-s="go"]', () => { this.daily = false; this.rush = false; this.startRun(); });
     this.on('[data-s="quit"]', () => this.exit());
+  }
+
+  private bestiary() {
+    const icon = (k: string) => (this.sprites[SPRITE_OF[k] ?? k] ?? this.sprites.ghoul).canvas.toDataURL();
+    this.show(`<h2>Bestiary</h2><p>Everything you have faced in the storm.</p>
+      <div class="sbeasts">${Object.entries(FOE_INFO).map(([k, [name, desc]]) => this.seen.includes(k) ? `<div><img alt="" src="${icon(k)}"><b>${esc(name)}</b><span>${esc(desc)}</span></div>` : '<div class="unseen"><i>?</i><b>Unknown</b><span>Not yet met.</span></div>').join('')}</div>
+      <div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
+    this.on('[data-s="back"]', () => this.menu());
   }
 
   private achievements() {
@@ -758,7 +852,7 @@ class Cinderstorm {
     const w = this.w, act = ACTS[w.act];
     music.setRegion(act.tune);
     this.show(`<div class="sact"><small>${w.loop ? `Abyss ${w.loop} · ` : ''}Act ${roman(w.act + 1)}</small><h2>${esc(act.name)}</h2><p>${esc(act.blurb)}</p>
-      ${act.roster.length ? `<p class="k">Three rooms, then <b>${esc(act.bossName)}</b>.</p>` : `<p class="k">Only <b>${esc(act.bossName)}</b> remains.</p>`}
+      ${w.rush ? `<p class="k">Boss rush: straight to <b>${esc(bossOf(w).name)}</b>.</p>` : act.roster.length ? `<p class="k">Three rooms, then <b>${esc(bossOf(w).name)}</b>.</p>` : `<p class="k">Only <b>${esc(bossOf(w).name)}</b> remains.</p>`}
       <div class="row"><button type="button" class="btn ember" data-s="go">Enter</button></div></div>`);
     this.on('[data-s="go"]', () => then());
   }
@@ -1038,6 +1132,16 @@ class Cinderstorm {
     active = null;
     this.onExit();
   }
+}
+
+/** A slowly turning ritual circle: two rings, a star, and rune ticks. */
+function runeCircle(g: Graphics, x: number, y: number, r: number, rot: number, color: number, alpha: number) {
+  g.circle(x, y, r).stroke({ width: 2, color, alpha });
+  g.circle(x, y, r * 0.78).stroke({ width: 1, color, alpha: alpha * 0.7 });
+  const pts: number[] = [];
+  for (let i = 0; i < 6; i++) { const a = rot + (i * 2 * Math.PI * 2) / 6; pts.push(x + Math.cos(a) * r * 0.78, y + Math.sin(a) * r * 0.78 * 0.55 + 0); }
+  for (let k = 0; k < 2; k++) { const a0 = rot + k * Math.PI / 3; const tri: number[] = []; for (let i = 0; i < 3; i++) { const a = a0 + (i * Math.PI * 2) / 3; tri.push(x + Math.cos(a) * r * 0.76, y + Math.sin(a) * r * 0.76); } g.poly(tri).stroke({ width: 1.5, color, alpha: alpha * 0.8 }); }
+  for (let i = 0; i < 16; i++) { const a = -rot * 1.5 + (i / 16) * Math.PI * 2; g.moveTo(x + Math.cos(a) * r * 0.82, y + Math.sin(a) * r * 0.82).lineTo(x + Math.cos(a) * r * 0.95, y + Math.sin(a) * r * 0.95).stroke({ width: i % 4 ? 1 : 2, color, alpha }); }
 }
 
 /** Darkened corners, so the eye stays in the middle of the fight. */
