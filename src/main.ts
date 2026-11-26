@@ -6,6 +6,7 @@ import { BH, BW, GameRenderer, SC, ZOOM_MAX } from './render/renderer';
 import { CARDS } from './sim/cards';
 import { RULES, UPGRADES } from './sim/constants';
 import { reachOutline } from './sim/reach';
+import { startStorm } from './storm/game';
 import { biomeOf, canActNow, fromHand, PLACE_CLEARANCE, placeProblem, playerState, playerUnit, previewCast } from './sim/game';
 import { predictThreats } from './sim/ai';
 import { findPath } from './sim/path';
@@ -1239,6 +1240,7 @@ function title() {
     <div class="row"><button type="button" class="btn ember" id="solo">Begin the descent</button><button type="button" class="btn" id="coop">Descend together</button><button type="button" class="btn" id="char">Character</button></div>
     <div class="opengames" id="openGames"></div>
     <div class="row"><button type="button" class="btn small" id="daily">Daily rite (${today}${dCurse ? `, ${esc(CURSES[dCurse].name)}` : ''})</button><button type="button" class="btn small" id="sanct">Sanctum · ${meta.ash} Ash</button><button type="button" class="btn small" id="codexB">Codex</button><button type="button" class="btn small" id="fbB">Feedback</button></div>
+    <div class="row"><button type="button" class="btn small" id="stormB" title="A real-time, bullet-hell take on the grimoire (single player, prototype)">Cinderstorm <small>(prototype)</small></button></div>
     ${curseHtml()}
     <ol class="howto">${coarse
       ? '<li>Hold a finger on the map to walk toward it, or tap the ground to walk there. Tap a body to inspect it. Drag with two fingers (or switch to Look) to pan.</li><li>Tap cards to forge a spell; they resolve left to right. Long-press a card to read it.</li><li>Tap the map to aim: the preview shows exactly what will happen. Then press Cast.</li><li>Foes outlined in red will strike you next turn. Codex (top right) holds the chronicle and help.</li>'
@@ -1253,6 +1255,7 @@ function title() {
   $('sanct').addEventListener('click', sanctum);
   $('codexB').addEventListener('click', codex);
   $('fbB').addEventListener('click', openFeedback);
+  $('stormB').addEventListener('click', () => { music.start(); void startStorm(() => title()); });
   bindCurses(title);
   showOpenGames();
   checkWebBuild();

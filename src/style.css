@@ -446,3 +446,44 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 /* quitting a run: a small confirm box */
 .askbox { position: fixed; inset: 0; z-index: 120; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); }
 .askbox .panel { max-width: 460px; }
+
+/* ------------------------------------------------------------ Cinderstorm (bullet-hell mode) */
+.storm { position: fixed; inset: 0; z-index: 90; background: #05030a; overflow: hidden; user-select: none; }
+.storm .scanvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; cursor: crosshair; }
+.storm .shud { position: absolute; left: 10px; right: 10px; bottom: 8px; display: flex; align-items: center; gap: 12px; pointer-events: none; font: 20px 'VT323', monospace; color: #e9dcc0; }
+.storm .shud .btn { pointer-events: auto; margin-left: auto; }
+.storm .shearts span { color: #3a1414; font-size: 26px; text-shadow: 0 0 2px #000; }
+.storm .shearts span.on { color: #ff3a4a; }
+.storm .smana { position: relative; width: 160px; height: 14px; background: #0a0a1a; border: 2px solid #2a2a5a; }
+.storm .smana i { position: absolute; inset: 0 auto 0 0; background: linear-gradient(#6aa8ff, #2a5ad0); }
+.storm .smana b { position: absolute; right: 4px; top: -4px; font-weight: normal; font-size: 16px; }
+.storm .sblink { padding: 0 6px; border: 2px solid #3a2a5a; color: #6a5a8a; }
+.storm .sblink.ready { border-color: #b48cff; color: #e8d8ff; }
+.storm .sslot { position: relative; display: flex; align-items: center; gap: 2px; padding: 2px 6px 4px; border: 2px solid #4a3a2a; background: rgba(10,6,4,.7); }
+.storm .sslot em { font-style: normal; font-size: 15px; color: #9a8a6a; margin-right: 4px; }
+.storm .sslot img { width: 22px; height: 22px; image-rendering: pixelated; }
+.storm .sslot u { position: absolute; left: 0; bottom: 0; height: 3px; background: #e0c040; }
+.storm .sslot.short { border-color: #6a2a2a; opacity: .7; }
+.storm .sroom { color: #c8b89a; }
+.storm .sboss { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); width: min(560px, 70vw); display: none; text-align: center; font: 22px 'VT323', monospace; color: #ffd06a; pointer-events: none; }
+.storm .sboss.on { display: block; }
+.storm .sboss i { display: block; height: 10px; border: 2px solid #5a3a14; background: #140a04; }
+.storm .sboss s { display: block; height: 100%; background: linear-gradient(#ffd06a, #c86a1a); }
+.storm .spanel { position: absolute; inset: 0; display: none; place-items: center; background: rgba(5,3,10,.78); overflow: auto; padding: 16px; }
+.storm .spanel.on { display: grid; }
+.storm .spanel .panel { max-width: 860px; }
+.storm .skeys { columns: 2; font: 19px 'VT323', monospace; }
+.storm kbd { padding: 0 4px; border: 1px solid #6a5a3a; background: #1a120a; }
+.storm .scards { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin: 10px 0; }
+.storm .scard { width: 190px; display: grid; justify-items: center; gap: 2px; padding: 10px 8px; border: 2px solid var(--c); background: #120c08; color: #e9dcc0; font: 18px 'VT323', monospace; cursor: pointer; }
+.storm .scard:hover { background: #22160c; }
+.storm .scard img { width: 40px; height: 40px; image-rendering: pixelated; }
+.storm .scard small { color: #9a8a6a; }
+.storm .scard span { font-size: 16px; color: #c8b89a; }
+.storm .scards.small .scard { width: 150px; padding: 6px; }
+.storm .scard.no { border-color: #ff3a2a; }
+.storm .sforge { margin: 8px 0; padding: 8px 10px; border: 2px solid #3a2a1a; cursor: pointer; }
+.storm .sforge.sel { border-color: #e0c040; background: rgba(60,40,10,.35); }
+.storm .sforge em { font-style: normal; color: #9a8a6a; }
+.storm .sforge .chips { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0; }
+.storm .sforge p { margin: 2px 0; color: #c8b89a; font: 17px 'VT323', monospace; }

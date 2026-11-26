@@ -582,8 +582,12 @@ class Score {
   }
 
   /** One eighth-note step of the current place's tune. */
+  /** Told about every eighth note just before it plays (step number, milliseconds until it sounds). */
+  onStep: ((step: number, inMs: number) => void) | null = null;
+
   private dreamStepAt(t: number, eighth: number) {
     const s = this.dreamStep++;
+    if (this.onStep && this.ctx) this.onStep(s, Math.max(0, (t - this.ctx.currentTime) * 1000));
     const tune = this.tune;
     const barStep = s % 8;
     const bar = Math.floor(s / 8);
@@ -693,6 +697,11 @@ class Score {
 
   /** 'menu' for title and Sanctum; 'camp' for camp and level-up; 'dungeon' while delving. */
   setScene(sc: 'menu' | 'camp' | 'dungeon') { this.scene = sc; }
+
+  /** Is a dreamwave tune actually playing (so beats will arrive)? */
+  dreamPlaying() { return !!this.ctx && this.ctx.state === 'running' && this.enabled && this.style === 'dream'; }
+  /** Tempo of the tune now playing. */
+  bpm() { return this.tune.bpm; }
 
   /** Which region of the Reach we are in: picks that place's dreamwave tune. */
   setRegion(id: string) { this.region = id; }

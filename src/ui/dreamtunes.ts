@@ -52,6 +52,21 @@ export const TUNES: Record<string, Tune> = {
       [[-7, 4, 9, 11, 16], [0, 7, 11, 14, 16], [-3, 3, 7, 10, 14], [-5, 2, 7, 10, 14]],
     ],
   },
+  // ------------------------------------------------ Cinderstorm
+  stormwood: {
+    name: 'Cinders Through the Canopy', root: 52, bpm: 84, lead: 'flute', dark: 0.18, busy: 1.3, textures: ['birds', 'wind'], scale: DORIAN,
+    progs: [
+      [[0, 7, 10, 14, 17], [-2, 5, 9, 14, 16], [-4, 3, 7, 12, 14], [-2, 7, 10, 14, 17]],
+      [[-7, 5, 9, 12, 16], [-5, 5, 10, 12, 14], [0, 3, 7, 14, 15], [-2, 5, 9, 12, 14]],
+    ],
+  },
+  stormstag: {
+    name: 'The Antler Hymn', root: 50, bpm: 96, lead: 'choir', dark: 0.45, busy: 1.2, textures: ['heartbeat', 'bells'], scale: HARM_MIN,
+    progs: [
+      [[0, 7, 12, 15, 19], [-4, 7, 11, 15, 16], [-2, 5, 10, 14, 17], [-5, 2, 7, 11, 14]],
+      [[0, 3, 7, 14, 15], [-7, 5, 8, 12, 15], [-4, 3, 8, 12, 15], [-5, 4, 7, 11, 13]],
+    ],
+  },
   // ------------------------------------------------ band 0: the forests (bright and hopeful)
   greenwood: {
     name: 'Sunlit Verge', root: 53, bpm: 78, lead: 'flute', dark: 0, busy: 1.25, textures: ['birds', 'birds', 'wind'], scale: MAJ_PENTA,
