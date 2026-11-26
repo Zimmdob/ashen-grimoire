@@ -287,7 +287,40 @@ class Cinderstorm {
     this.inp.focus = k.has('shift');
     this.inp.fireA = this.ptrA || k.has('j');
     this.inp.fireB = this.ptrB || k.has('k');
+    this.readPad();
   }
+
+  /**
+   * A controller, if one is plugged in: left stick moves, right stick aims, right trigger and
+   * left trigger fire your spells, A blinks, B (or a bumper) throws an Ash Nova, X focuses, Start pauses.
+   */
+  private padPrev: boolean[] = [];
+  private readPad() {
+    const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
+    const gp = [...pads].find((x) => x && x.connected);
+    if (!gp) return;
+    const dz = (v: number) => (Math.abs(v) < 0.22 ? 0 : v);
+    const lx = dz(gp.axes[0] ?? 0), ly = dz(gp.axes[1] ?? 0), rx = dz(gp.axes[2] ?? 0), ry = dz(gp.axes[3] ?? 0);
+    const btn = (i: number) => !!gp.buttons[i]?.pressed || (gp.buttons[i]?.value ?? 0) > 0.4;
+    if (lx || ly) { this.inp.left ||= lx < -0.3; this.inp.right ||= lx > 0.3; this.inp.up ||= ly < -0.3; this.inp.down ||= ly > 0.3; }
+    const p = this.w.player;
+    if (rx || ry) { const a = Math.atan2(ry, rx); this.inp.mx = p.x + Math.cos(a) * 200; this.inp.my = p.y + Math.sin(a) * 200; this.padAim = true; }
+    else if (this.padAim) {
+      // no right stick: aim at the nearest foe
+      let best = null as null | { x: number; y: number }, bd = Infinity;
+      for (const f of this.w.foes) { const d = Math.hypot(f.x - p.x, f.y - p.y); if (f.state !== 'spawn' && d < bd) { bd = d; best = f; } }
+      if (best) { this.inp.mx = best.x; this.inp.my = best.y; }
+    }
+    this.inp.fireA ||= btn(7);
+    this.inp.fireB ||= btn(6);
+    this.inp.blink ||= btn(0);
+    this.inp.focus ||= btn(2);
+    const pressed = (i: number) => btn(i) && !this.padPrev[i];
+    if (pressed(1) || pressed(4) || pressed(5)) this.bombQueued = true;
+    if (pressed(9)) this.pause();
+    this.padPrev = gp.buttons.map((b) => b.pressed);
+  }
+  private padAim = false;
 
   // ------------------------------------------------------------------ the loop
   private frame() {
@@ -675,6 +708,7 @@ class Cinderstorm {
         <li><kbd>Left</kbd> / <kbd>Right click</kbd> your two spells</li><li><kbd>Space</kbd> blink (can't be hit)</li>
         <li><kbd>Shift</kbd> focus: slow, precise, hitbox shown</li><li><kbd>F</kbd> Ash Nova: clears every foe shot</li>
         <li>Only the small dot at your centre can be hit. Near misses (grazes) refill mana.</li><li><kbd>Esc</kbd> pause</li>
+        <li>Controller: sticks move and aim, triggers fire, <kbd>A</kbd> blink, <kbd>B</kbd> Nova, <kbd>X</kbd> focus</li>
       </ul>
       <h3>Who descends?</h3>
       <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}"><b>${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`).join('')}</div>
