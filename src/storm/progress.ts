@@ -8,6 +8,8 @@ export type NpcId = 'rook' | 'brannoch' | 'ysolde' | 'hesk' | 'vell';
 export interface RunRecord { at: number; cls: string; diff: string; won: boolean; act: number; score: number; level: number; secs: number; kills: number; true?: boolean; weekly?: boolean }
 export interface Settings {
   shake: number; flash: boolean; hitbox: boolean; autofire: boolean; contrast: boolean; textScale: number; sfx: number; music: number;
+  /** Post-processing: 2 = everything, 1 = bloom and grading only, 0 = none. */
+  fx: number;
   keys: Record<string, string>;
 }
 export interface Progress {
@@ -31,7 +33,7 @@ export const DEFAULT_KEYS: Record<string, string> = { up: 'w', down: 's', left: 
 const fresh = (): Progress => ({
   embers: 0, lifetimeEmbers: 0, upgrades: {}, rescued: [], pacts: [], codex: [], talked: {}, bossMet: {}, wins: 0, trueEnding: false, endingsSeen: [], tutorialDone: false,
   history: [], evolutions: [], weeklyBest: {}, familiars: [],
-  settings: { shake: 1, flash: true, hitbox: false, autofire: false, contrast: false, textScale: 1, sfx: 1, music: 1, keys: { ...DEFAULT_KEYS } },
+  settings: { fx: 2, shake: 1, flash: true, hitbox: false, autofire: false, contrast: false, textScale: 1, sfx: 1, music: 1, keys: { ...DEFAULT_KEYS } },
 });
 function load(): Progress {
   try {

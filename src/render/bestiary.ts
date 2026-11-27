@@ -650,10 +650,14 @@ function robedMini(p: Painter, f: number, x: number, s: number, lift: number) {
 export const BIG = new Set(['stag', 'warden', 'lich', 'orrery', 'choir', 'king', 'unwritten', 'queen', 'mother', 'thornmaw', 'bloom', 'swarm', 'star']);
 /** Paint frame f of creature `key` at resolution R. */
 export function paintCreature(key: string, f: number, Rz: number): HTMLCanvasElement | null {
+  return paintCreatureLit(key, f, Rz, false)?.canvas ?? null;
+}
+/** A creature and (optionally) its eight rim-light maps. */
+export function paintCreatureLit(key: string, f: number, Rz: number, withRims = true): { canvas: HTMLCanvasElement; rims: HTMLCanvasElement[] } | null {
   const fn = CREATURES[key];
   if (!fn) return null;
   const p = new Painter(Rz);
   fn(p, f);
-  return p.canvas();
+  return { canvas: p.canvas(), rims: withRims ? p.rims() : [] };
 }
 export type { RGB };

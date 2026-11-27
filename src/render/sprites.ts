@@ -1,6 +1,7 @@
 import { Texture } from 'pixi.js';
 import { paintDoll } from './doll';
-import { BIG, CREATURES, paintCreature } from './bestiary';
+import { BIG, CREATURES, paintCreature, paintCreatureLit } from './bestiary';
+import { paintHero, paintHeroRims, STORM_HEROES, type Kit } from './heroes';
 import type { Look } from '../sim/types';
 
 // Original 16x16 pixel art, drawn as character grids. '.' is transparent.
@@ -261,7 +262,7 @@ function outline(src: HTMLCanvasElement): HTMLCanvasElement {
 }
 
 /** A sprite and its tinted variants. `res` is its pixel size (16 = classic; draw at scale 16/res). */
-export interface SpriteSet { base: Texture; dead: Texture; ice: Texture; white: Texture; outline: Texture; canvas: HTMLCanvasElement; res: number; frames: Texture[] }
+export interface SpriteSet { base: Texture; dead: Texture; ice: Texture; white: Texture; outline: Texture; canvas: HTMLCanvasElement; res: number; frames: Texture[]; rims?: Texture[] }
 
 function setFrom(base: HTMLCanvasElement, more: HTMLCanvasElement[] = []): SpriteSet {
   const b = Texture.from(base);
@@ -288,8 +289,9 @@ export function buildSprites(): Record<string, SpriteSet> {
   for (const [k, def] of Object.entries(SPRITES)) out[k] = spriteSet(def);
   // the painted bestiary replaces the old 16px grids for every creature it knows
   for (const k of Object.keys(CREATURES)) {
-    const res = BIG.has(k) ? 48 : 32;
-    out[k] = setFrom(paintCreature(k, 0, res)!, [paintCreature(k, 1, res)!]);
+    const res = BIG.has(k) ? 80 : 48;
+    const lit = paintCreatureLit(k, 0, res)!;
+    out[k] = { ...setFrom(lit.canvas, [paintCreature(k, 1, res)!]), rims: lit.rims.map((c) => Texture.from(c)) };
   }
   return out;
 }
@@ -297,5 +299,23 @@ export function buildSprites(): Record<string, SpriteSet> {
 
 // ---- the spellwright paper doll (see doll.ts)
 export function wizardSprite(look: Look): SpriteSet {
-  return spriteSet(paintDoll(look));
+  return heroSet(look, { weapon: 'staff' });
 }
+/** A hero at 64px: four walk frames (the base is frame 0); the casting pose is `cast`. */
+export function heroSet(look: Look, kit: Kit): SpriteSet & { cast: Texture } {
+  const set = setFrom(paintHero(look, 0, kit), [1, 2, 3].map((f) => paintHero(look, f, kit)));
+  return { ...set, cast: Texture.from(paintHero(look, 4, kit)), rims: paintHeroRims(look, kit).map((c) => Texture.from(c)) };
+}
+const stormHeroCache = new Map<string, SpriteSet & { cast: Texture }>();
+/** A Cinderstorm class's hero (and a recoloured partner for player two). */
+export function stormHero(cls: string, partner = false) {
+  const key = `${cls}|${partner}`;
+  let s = stormHeroCache.get(key);
+  if (!s) {
+    const h = STORM_HEROES[cls] ?? STORM_HEROES.spellwright;
+    s = heroSet(partner ? { ...h.look, robe: (h.look.robe + 3) % 12, hairColor: (h.look.hairColor + 4) % 14, trim: (h.look.trim + 3) % 8 } : h.look, h.kit);
+    stormHeroCache.set(key, s);
+  }
+  return s;
+}
+void paintDoll;

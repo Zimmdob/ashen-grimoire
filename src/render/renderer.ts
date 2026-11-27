@@ -596,7 +596,12 @@ export class GameRenderer {
         sp.scale.set(v.flip ? -s : s, s);
         sp.rotation = alive ? 0 : Math.PI / 2;
       }
-      v.main.texture = !alive ? set.dead : v.s.frozen > 0 ? set.ice : set.frames[Math.floor(now / 380 + v.id * 0.37) % set.frames.length];
+      // heroes (four frames) only walk while moving; creatures breathe all the time
+      const vv = v as typeof v & { px?: number; py?: number; walkT?: number };
+      if (Math.hypot(v.x - (vv.px ?? v.x), v.y - (vv.py ?? v.y)) > 0.05) vv.walkT = now;
+      vv.px = v.x; vv.py = v.y;
+      const frameOf = (st: SpriteSet) => st.frames.length >= 4 ? (now - (vv.walkT ?? -1e9) < 150 ? st.frames[Math.floor(now / 120) % 4] : st.frames[0]) : st.frames[Math.floor(now / 380 + v.id * 0.37) % st.frames.length];
+      v.main.texture = !alive ? set.dead : v.s.frozen > 0 ? set.ice : frameOf(set);
       v.ghost.texture = v.main.texture;
       v.main.zIndex = v.flashS.zIndex = alive ? v.y : v.y - 10000;
       v.outline.zIndex = v.main.zIndex - 0.5;
@@ -1056,7 +1061,7 @@ export class GameRenderer {
       const set = this.setFor(v.type, v.owner);
       const alive = v.s.alive && !(v.s.downed > 0);
       const s = this.scaleOf(v);
-      const tex = !v.s.alive ? set.dead : v.s.frozen > 0 && alive ? set.ice : set.frames[Math.floor(now / 380 + v.id * 0.37) % set.frames.length];
+      const tex = !v.s.alive ? set.dead : v.s.frozen > 0 && alive ? set.ice : set.frames.length >= 4 ? set.frames[now - ((v as { walkT?: number }).walkT ?? -1e9) < 150 ? Math.floor(now / 120) % 4 : 0] : set.frames[Math.floor(now / 380 + v.id * 0.37) % set.frames.length];
       const threat = alive && this.ov.threats.has(v.id);
       const targeted = this.ov.targets.has(v.id);
       const hover = this.ov.hoverId === v.id && alive;

@@ -55,10 +55,14 @@ export class Painter {
   readonly k: number;
   private d: Uint8ClampedArray;
   private emis: Uint8Array;
+  /** Surface normals (x, y) per pixel, kept for lighting maps. */
+  private nrm: Float32Array;
+  private nn: [number, number] = [0, 0];
   constructor(R: number) {
     this.R = R; this.k = R / 32;
     this.d = new Uint8ClampedArray(R * R * 4);
     this.emis = new Uint8Array(R * R);
+    this.nrm = new Float32Array(R * R * 2);
   }
   private on(x: number, y: number) { return x >= 0 && y >= 0 && x < this.R && y < this.R; }
   put(x: number, y: number, c: RGB, emissive = false) {
@@ -80,6 +84,7 @@ export class Painter {
       let idx = Math.round(v * (rp.length - 1) + BAYER[(y & 3) * 4 + (x & 3)] * dith);
       if (edge && !(inside(cx + 1, cy) && inside(cx - 1, cy) && inside(cx, cy + 1) && inside(cx, cy - 1))) idx = Math.min(idx, cy > (y0 + y1) / 2 || cx > (x0 + x1) / 2 + 2 ? 0 : 1);
       this.put(x, y, rp[Math.min(rp.length - 1, Math.max(0, idx))]);
+      const j = (y * this.R + x) * 2; this.nrm[j] = this.nn[0]; this.nrm[j + 1] = this.nn[1];
     }
   }
 
@@ -90,6 +95,7 @@ export class Painter {
     this.fill(X - m, Y - m, X + m, Y + m, (x, y) => { const [u, v] = loc(x, y); return u * u + v * v <= 1; }, (x, y) => {
       const [u, v] = loc(x, y), nz = Math.sqrt(Math.max(0, 1 - u * u - v * v));
       const nx = u * c + v * s, ny = -u * s + v * c;
+      this.nn = [nx, ny];
       return 0.2 + 0.72 * (nx * LX + ny * LY + nz * LZ);
     }, rp, o);
   }
@@ -106,7 +112,7 @@ export class Painter {
     const m = Math.max(R0, R1);
     this.fill(Math.min(A[0], B[0]) - m, Math.min(A[1], B[1]) - m, Math.max(A[0], B[0]) + m, Math.max(A[1], B[1]) + m,
       (x, y) => { const n = near(x, y); return n.ox * n.ox + n.oy * n.oy <= n.r * n.r; },
-      (x, y) => { const n = near(x, y), nx = n.ox / n.r, ny = n.oy / n.r, nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)); return 0.2 + 0.72 * (nx * LX + ny * LY + nz * LZ); }, rp, o);
+      (x, y) => { const n = near(x, y), nx = n.ox / n.r, ny = n.oy / n.r, nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny)); this.nn = [nx, ny]; return 0.2 + 0.72 * (nx * LX + ny * LY + nz * LZ); }, rp, o);
   }
 
   /** A polygon (flat list of x,y), shaded by a gentle gradient toward the light. */
@@ -122,7 +128,7 @@ export class Painter {
       }
       return c;
     };
-    this.fill(x0, y0, x1, y1, inside, (x, y) => 0.55 + 0.9 * ((x - cx) * LX + (y - cy) * LY) / sz, rp, o);
+    this.fill(x0, y0, x1, y1, inside, (x, y) => { this.nn = [Math.max(-1, Math.min(1, ((x - cx) / sz) * 1.6)), Math.max(-1, Math.min(1, ((y - cy) / sz) * 1.6))]; return 0.55 + 0.9 * ((x - cx) * LX + (y - cy) * LY) / sz; }, rp, o);
   }
 
   /** A straight stroke of one colour (width in 32-space units). */
@@ -144,6 +150,31 @@ export class Painter {
     const r = ramp(c);
     this.dot(x, y, r[4], s, true);
     if (s >= 1.5) this.dot(x + s * 0.5, y + s * 0.5, C('#ffffff'), s * 0.4, true);
+  }
+
+  /** Rim-light maps: for each of eight directions, how strongly each pixel faces a light from there. */
+  rims(): HTMLCanvasElement[] {
+    const R = this.R, out: HTMLCanvasElement[] = [];
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2, dx = Math.cos(a), dy = Math.sin(a);
+      const img = new Uint8ClampedArray(R * R * 4);
+      for (let y = 0; y < R; y++) for (let x = 0; x < R; x++) {
+        const i = y * R + x;
+        if (!this.d[i * 4 + 3] || this.emis[i]) continue;
+        let v = this.nrm[i * 2] * dx + this.nrm[i * 2 + 1] * dy;
+        // the silhouette's edge on the lit side catches the most
+        const tx = x + Math.round(dx), ty = y + Math.round(dy);
+        const edge = tx < 0 || ty < 0 || tx >= R || ty >= R || !this.d[(ty * R + tx) * 4 + 3];
+        if (edge) v = Math.max(v, 0.6) + 0.35;
+        if (v <= 0.15) continue;
+        img[i * 4] = img[i * 4 + 1] = img[i * 4 + 2] = 255;
+        img[i * 4 + 3] = Math.min(255, Math.pow(Math.min(1, v), 1.6) * 230);
+      }
+      const c = document.createElement('canvas'); c.width = c.height = R;
+      c.getContext('2d')!.putImageData(new ImageData(img, R, R), 0, 0);
+      out.push(c);
+    }
+    return out;
   }
 
   /** Outline the silhouette and hand back a canvas. */

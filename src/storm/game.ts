@@ -1,6 +1,8 @@
-import { Application, Container, Graphics, RenderTexture, Sprite, Text, Texture } from 'pixi.js';
+import { Application, ColorMatrixFilter, Container, Graphics, RenderTexture, Sprite, Text, Texture } from 'pixi.js';
 import { drawLava, drawMap } from '../render/mapArt';
-import { buildSprites, type SpriteSet } from '../render/sprites';
+import { buildSprites, stormHero, type SpriteSet } from '../render/sprites';
+import { AdvancedBloomFilter, GodrayFilter, ShockwaveFilter } from 'pixi-filters';
+import { paintProps } from '../render/props';
 import { cardIcon, SCHOOL_COLOR } from '../ui/icons';
 import { music } from '../ui/music';
 import { play, setSfxVolume } from '../ui/sfx';
@@ -222,6 +224,20 @@ class Cinderstorm {
   private bomb2Queued = false;
   private surge2Queued = false;
   private allySprite = new Sprite();
+  private rimLayer = new Container();
+  private propSprite = new Sprite();
+  private scorchG = new Graphics();
+  private scorches = 0;
+  private fogLayer = new Container();
+  private fogTex: Texture | null = null;
+  /** Post-processing: bloom, per-act grading, shockwaves, light shafts. */
+  private bloom: AdvancedBloomFilter | null = null;
+  private grade = new ColorMatrixFilter();
+  private shock: ShockwaveFilter | null = null;
+  private rays: GodrayFilter | null = null;
+  private shockT = -1;
+  private rimSprites = new Map<number, Sprite>();
+  private lastLights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
   private route: Route | null = null;
   private anim = new Map<number, { px: number; py: number; lean: number; sq: number }>();
   private recoil = 0;
@@ -265,7 +281,7 @@ class Cinderstorm {
     this.darkSprite = new Sprite(this.darkRT);
     this.darkSprite.scale.set(2);
     // the dark falls on the ground only: bodies, traps and shots always stay readable
-    this.world.addChild(this.mapSprite, this.liqSprite, this.darkSprite, this.wallG, this.hazG, this.shadowG, this.unitLayer, this.glowLayer, this.shardG, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
+    this.world.addChild(this.mapSprite, this.liqSprite, this.propSprite, this.scorchG, this.fogLayer, this.darkSprite, this.wallG, this.hazG, this.shadowG, this.unitLayer, this.rimLayer, this.glowLayer, this.shardG, this.weatherG, this.fxG, this.bulletLayer, this.hitG, this.textLayer);
     this.vignette = new Sprite(Texture.from(vignetteCanvas()));
     for (let i = 0; i < 5; i++) { const g = new Sprite(this.glow); g.anchor.set(0.5); this.backGlows.push(g); this.backC.addChild(g); }
     // the vignette darkens only the backdrop around the arena, never the fight itself
@@ -300,14 +316,16 @@ class Cinderstorm {
     this.owned = [...CLASSES[this.cls].owned];
     this.announced = -1;
     this.deadT = 0;
-    this.playerSprite.tint = CLASSES[this.cls].tint;
+    this.playerSprite.tint = 0xffffff;
+    this.playerSprite.texture = stormHero(this.cls).base;
+    this.playerSprite.anchor.set(0.5, 0.64);
     this.banked = false;
     this.clearedAt = 0;
     for (const s of this.foeSprites.values()) s.destroy();
     this.foeSprites.clear();
     this.unitLayer.removeChildren();
     this.unitLayer.addChild(this.playerSprite);
-    if (this.w.ally) { this.allySprite = new Sprite(this.playerSprite.texture); this.allySprite.anchor.copyFrom(this.playerSprite.anchor); this.allySprite.tint = 0x9fffd0; this.unitLayer.addChild(this.allySprite); }
+    if (this.w.ally) { this.allySprite = new Sprite(stormHero(this.cls, true).base); this.allySprite.anchor.set(0.5, 0.64); this.unitLayer.addChild(this.allySprite); }
     this.route = makeRoute(this.w);
     this.actCard(() => this.enter());
   }
@@ -322,6 +340,16 @@ class Cinderstorm {
     this.liqCanvas.height = MH * 16;
     drawLava(this.liqCanvas, this.snap, 0);
     this.liqSprite.texture = Texture.from(this.liqCanvas);
+    // set dressing: props along the walls, scorch marks cleared, ground fog in the act's colour
+    const oldP = this.propSprite.texture;
+    const w0 = this.w;
+    this.propSprite.texture = Texture.from(paintProps(Math.min(5, w0.act), w0.map, 32, (w0.seed ^ (w0.act * 977 + w0.room * 131)) >>> 0, (tx, ty) => Math.abs(tx - MW / 2) <= 2 && ty >= MH - 6));
+    if (oldP && oldP !== Texture.EMPTY) oldP.destroy(true);
+    this.scorchG.clear(); this.scorches = 0;
+    if (!this.fogTex) { const c = document.createElement('canvas'); c.width = c.height = 128; const g = c.getContext('2d')!; const gr = g.createRadialGradient(64, 64, 4, 64, 64, 64); gr.addColorStop(0, 'rgba(255,255,255,0.9)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 128, 128); this.fogTex = Texture.from(c); }
+    this.fogLayer.removeChildren();
+    const fogCol = [0xc8e0a0, 0x9ab08a, 0xd8ecff, 0xffa060, 0xff8090, 0xff7040][Math.min(5, w0.act)];
+    for (let i = 0; i < 7; i++) { const f = new Sprite(this.fogTex); f.anchor.set(0.5); f.tint = fogCol; f.alpha = 0.05 + (i % 3) * 0.015; f.scale.set(4 + (i % 4) * 1.5, 2 + (i % 3)); f.position.set((i / 7) * AW, AH * (0.2 + ((i * 37) % 60) / 100)); this.fogLayer.addChild(f); }
     // lava glows: one light per few tiles
     this.lavaLights = [];
     for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x += 2) if (this.w.map[y][x] === T_LAVA) this.lavaLights.push({ x: x * 32 + 16, y: y * 32 + 16 });
@@ -344,6 +372,7 @@ class Cinderstorm {
   /** Start playing the room the world is in now. */
   private enter() {
     this.buildMap();
+    this.setupPost();
     this.wipe();
     const act = ACTS[this.w.act];
     music.setRegion(this.w.kind === 'boss' ? act.bossTune : act.tune);
@@ -481,7 +510,7 @@ class Cinderstorm {
       if (this.seenFx.has(f)) continue;
       this.seenFx.add(f);
       if (f.kind === 'hurt') { this.flash = { a: 0.35, color: 0xff1a2a }; this.hitStop = Math.max(this.hitStop, 0.07); this.shake = Math.max(this.shake, 9); }
-      if (f.kind === 'nova') { this.flash = { a: 0.45, color: f.color }; this.shake = Math.max(this.shake, 12); }
+      if (f.kind === 'nova') { this.shockwave(f.x, f.y); this.flash = { a: 0.45, color: f.color }; this.shake = Math.max(this.shake, 12); }
       if (f.kind === 'phase') {
         this.flash = { a: 0.5, color: f.text === 'OVERDRIVE' ? 0xffc070 : 0xffffff }; this.hitStop = 0.3; this.shake = 16;
         play(f.text === 'OVERDRIVE' ? 'overdrive' : f.text === 'Held!' ? 'rescue' : 'phase');
@@ -489,10 +518,16 @@ class Cinderstorm {
         else if (f.text === 'Held!') this.banner('Held!', 'The rifts are closed');
         else this.banner(`Phase ${f.text ?? ''}`, bossOf(this.w).name);
       }
-      if (f.kind === 'die' && (f.r ?? 0) > 18) { this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; this.punch = 0.08; }
+      if (f.kind === 'die' && (f.r ?? 0) > 18) { this.shockwave(f.x, f.y); this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; this.punch = 0.08; }
       if (f.kind === 'phase' || f.kind === 'nova') this.punch = Math.max(this.punch, 0.05);
       // the fallen shatter into the pixels they were drawn with
       if (f.kind === 'die' && f.src) play(`die_${FAMILY[f.src] ?? 'beast'}`);
+      if ((f.kind === 'boom' || f.kind === 'die' || f.kind === 'burst') && this.scorches < 220) {
+        this.scorches++;
+        const r = Math.max(8, (f.r ?? 12) * (f.kind === 'die' ? 0.8 : 0.6));
+        this.scorchG.circle(f.x, f.y + 4, r).fill({ color: f.kind === 'die' ? 0x2a0808 : 0x120a08, alpha: 0.2 });
+        for (let k = 0; k < 5; k++) { const a = k * 1.3 + f.x; this.scorchG.moveTo(f.x, f.y + 4).lineTo(f.x + Math.cos(a) * r * 1.4, f.y + 4 + Math.sin(a) * r * 0.9).stroke({ width: 1.5, color: 0x0a0604, alpha: 0.22 }); }
+      }
       if (f.kind === 'text' && f.text?.includes('combo')) play('combo');
       if (f.kind === 'die') this.shatter(f.src ?? 'wizard', f.x, f.y, f.src ? ((f.r ?? 10) > 18 ? 3.8 : (f.r ?? 10) > 13 ? 3.2 : 2.6) : 2);
     }
@@ -616,6 +651,9 @@ class Cinderstorm {
     this.shake *= 0.88;
     const sk = this.shake * progress.settings.shake;
     const sx = (Math.random() - 0.5) * sk, sy = (Math.random() - 0.5) * sk;
+    if (this.shock && this.shockT >= 0) { this.shockT += dt; this.shock.time = this.shockT; if (this.shockT > 1.6) { this.shockT = -1; this.shock.time = 99; } }
+    if (this.rays) { this.rays.time = now / 4000; this.rays.center = { x: sw * 0.3, y: -sh * 0.4 }; }
+    for (const [i, f] of this.fogLayer.children.entries()) { f.x += Math.sin(now / 9000 + i) * 0.15 + 0.12; if (f.x > AW + 200) f.x = -200; }
     // camera punch: a quick zoom toward the centre on big moments
     this.punch *= 0.9;
     const zs = this.scale * (1 + this.punch);
@@ -672,7 +710,9 @@ class Cinderstorm {
     const al = w.ally;
     if (al) {
       this.allySprite.position.set(al.x, al.y + (al.moving ? -Math.abs(Math.sin(now / 80)) * 2 : 0));
-      this.allySprite.scale.set(Math.cos(al.face) < 0 ? -2 : 2, 2);
+      const as2 = stormHero(w.player.cls, true);
+      this.allySprite.texture = al.moving ? as2.frames[Math.floor(now / 110) % 4] : as2.frames[0];
+      this.allySprite.scale.set(Math.cos(al.face) < 0 ? -0.62 : 0.62, 0.62);
       this.allySprite.alpha = al.dead ? 0.35 : al.inv > 0 ? (Math.floor(now / 60) % 2 ? 0.35 : 0.9) : 1;
       this.allySprite.rotation = al.dead ? Math.PI / 2 : 0;
     }
@@ -681,7 +721,9 @@ class Cinderstorm {
     const pl = p.moving ? Math.max(-0.14, Math.min(0.14, p.vx * 0.0009)) : 0;
     this.playerSprite.rotation += (pl - this.playerSprite.rotation) * 0.25;
     this.playerSprite.position.set(p.x - Math.cos(p.face) * this.recoil * 2.5, p.y - Math.sin(p.face) * this.recoil * 2.5 + (p.moving ? -Math.abs(Math.sin(now / 80)) * 2 : Math.sin(now / 500) * 0.6));
-    this.playerSprite.scale.set((Math.cos(p.face) < 0 ? -2 : 2) * (1 + this.recoil * 0.06), 2 * (1 - this.recoil * 0.05));
+    const hs = stormHero(w.player.cls), HS = 0.62;
+    this.playerSprite.texture = this.recoil > 0.25 || this.inp.fireA ? hs.cast : p.moving ? hs.frames[Math.floor(now / 110) % 4] : hs.frames[0];
+    this.playerSprite.scale.set((Math.cos(p.face) < 0 ? -HS : HS) * (1 + this.recoil * 0.06), HS * (1 - this.recoil * 0.05));
     this.playerSprite.alpha = p.dead ? (w.ally ? 0.35 : 0) : p.inv > 0 ? (Math.floor(now / 60) % 2 ? 0.35 : 0.9) : 1;
     this.playerSprite.rotation = p.dead && w.ally ? Math.PI / 2 : this.playerSprite.rotation;
 
@@ -717,6 +759,33 @@ class Cinderstorm {
       s.tint = f.flash > 0.5 ? 0xff9a9a : f.state === 'wind' ? 0xff8a8a : f.slow > 0 ? 0xa8d8ff : f.burnT > 0 ? 0xffc890 : f.elite ? 0xffd890 : f.state === 'sleep' ? 0x8a8a9a : 0xffffff;
     }
     for (const [id, s] of this.foeSprites) if (!seen.has(id)) { s.destroy(); this.foeSprites.delete(id); this.anim.delete(id); }
+    // light catches the edges: each figure takes the colour and direction of the strongest light near it
+    const seenRim = new Set<number>();
+    const shotLights = w.bullets.filter((b) => b.friendly && !b.orbit).slice(0, 24);
+    const rimFor = (key: number, body: Sprite, rims: Texture[] | undefined, x: number, y: number) => {
+      if (!rims?.length || body.alpha < 0.2) return;
+      let best = 0, bx = 0, by = 0, col = 0xffffff;
+      for (const L of this.lastLights) {
+        const d = Math.hypot(L.x - x, L.y - y), reach = L.r * 0.9;
+        if (d > reach || d < 4) continue;
+        const v = L.a * (1 - d / reach) * (0.6 + L.glow * 3);
+        if (v > best) { best = v; bx = L.x; by = L.y; col = L.color; }
+      }
+      for (const b of shotLights) { const d = Math.hypot(b.x - x, b.y - y); if (d < 70 && d > 3) { const v = (1 - d / 70) * 1.1; if (v > best) { best = v; bx = b.x; by = b.y; col = b.color; } } }
+      if (best < 0.06) return;
+      let ax = bx - x; const ay = by - (y - 10);
+      if (body.scale.x < 0) ax = -ax;
+      const idx = ((Math.round(Math.atan2(ay, ax) / (Math.PI / 4)) % 8) + 8) % 8;
+      let r = this.rimSprites.get(key);
+      if (!r) { r = new Sprite(); r.blendMode = 'add'; this.rimLayer.addChild(r); this.rimSprites.set(key, r); }
+      r.texture = rims[idx]; r.anchor.copyFrom(body.anchor); r.scale.copyFrom(body.scale); r.position.copyFrom(body.position); r.rotation = body.rotation;
+      r.tint = col; r.alpha = Math.min(0.85, best * 1.2); r.visible = true;
+      seenRim.add(key);
+    };
+    for (const f of w.foes) { const sp2 = this.foeSprites.get(f.id); if (sp2) rimFor(f.id, sp2, (this.sprites[SPRITE_OF[f.type] ?? f.type] ?? this.sprites.ghoul).rims, f.x, f.y); }
+    if (!p.dead) rimFor(-1, this.playerSprite, stormHero(w.player.cls).rims, p.x, p.y);
+    if (w.ally && !w.ally.dead) rimFor(-2, this.allySprite, stormHero(w.player.cls, true).rims, w.ally.x, w.ally.y);
+    for (const [id, r] of this.rimSprites) if (!seenRim.has(id)) { if (id >= 0 && !this.foeSprites.has(id)) { r.destroy(); this.rimSprites.delete(id); } else r.visible = false; }
     this.unitLayer.children.sort((a, b) => a.y - b.y);
     // shadows under everyone, auras for champions, stars over the stunned
     const sg = this.shadowG;
@@ -880,6 +949,7 @@ class Cinderstorm {
   private drawLight(now: number, look: (typeof LOOK)[number]) {
     const w = this.w, p = w.player;
     const lights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
+    this.lastLights = lights;
     if (!p.dead) lights.push({ x: p.x, y: p.y, r: 250 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.14 });
     if (w.ally && !w.ally.dead) lights.push({ x: w.ally.x, y: w.ally.y, r: 220, a: 1, color: 0xc8ffe0, glow: 0.12 });
     if (!p.dead && w.overdrive > 0) lights.push({ x: p.x, y: p.y, r: 140, a: 1, color: 0xffa040, glow: 0.3 });
@@ -1026,7 +1096,7 @@ class Cinderstorm {
         <li>Controller: sticks move and aim, triggers fire, <kbd>A</kbd> blink, <kbd>B</kbd> Nova, <kbd>X</kbd> focus, <kbd>Y</kbd> Overdrive</li>
       </ul>
       <h3>Who descends?</h3>
-      <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => { const lock = CLASSES[c].locked && !this.ach.includes(CLASSES[c].locked!); return `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}" ${lock ? 'disabled' : ''}><b>${lock ? '🔒 ' : ''}${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`; }).join('')}</div>
+      <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => { const lock = CLASSES[c].locked && !this.ach.includes(CLASSES[c].locked!); return `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}" ${lock ? 'disabled' : ''}><img class="shero" alt="" src="${stormHero(c).canvas.toDataURL()}" ${lock ? 'style="filter:brightness(0.2)"' : ''}><b>${lock ? '🔒 ' : ''}${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`; }).join('')}</div>
       <h3>How fierce?</h3>
       <div class="sdiff">${(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => `<button type="button" class="btn ${this.diff === d ? 'ember' : ''}" data-d="${d}"><b>${DIFFICULTY[d].name}</b><small>${esc(DIFFICULTY[d].desc)}</small>${b[d] ? `<small>Best: ${b[d]!.toLocaleString()}</small>` : ''}</button>`).join('')}</div>
       <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
@@ -1058,6 +1128,7 @@ class Cinderstorm {
         <label>Music <input type="range" min="0" max="1" step="0.05" data-o="music" value="${st.music}"></label>
         <label>Screen shake <input type="range" min="0" max="1.5" step="0.25" data-o="shake" value="${st.shake}"></label>
         <label>Text size <input type="range" min="0.85" max="1.4" step="0.05" data-o="textScale" value="${st.textScale}"></label>
+        <label>Graphics effects <input type="range" min="0" max="2" step="1" data-o="fx" value="${st.fx}"> <span class="k">${['Off (fastest)', 'Bloom and colour', 'Everything'][st.fx]}</span></label>
         <label><input type="checkbox" data-c="flash" ${st.flash ? 'checked' : ''}> Full-strength screen flashes (off: softened, for light sensitivity)</label>
         <label><input type="checkbox" data-c="hitbox" ${st.hitbox ? 'checked' : ''}> Always show my hitbox</label>
         <label><input type="checkbox" data-c="contrast" ${st.contrast ? 'checked' : ''}> High-contrast foe shots (all bright magenta)</label>
@@ -1077,6 +1148,32 @@ class Cinderstorm {
     setSfxVolume(st.sfx);
     music.setVolume(0.5 * st.music);
     this.root.style.setProperty('--storm-text', String(st.textScale));
+    this.setupPost();
+  }
+  /** Build the post-processing chain for the current quality and act. */
+  private setupPost() {
+    if (!this.app?.stage) return;
+    const q = progress.settings.fx;
+    this.bloom ??= new AdvancedBloomFilter({ threshold: 0.68, bloomScale: 0.45, brightness: 1, blur: 4, quality: 4 });
+    this.shock ??= new ShockwaveFilter({ center: { x: 0, y: 0 }, amplitude: 22, wavelength: 140, speed: 900, brightness: 1.08, radius: 900, time: 0 });
+    this.rays ??= new GodrayFilter({ angle: 28, parallel: true, gain: 0.32, lacunarity: 2.6, alpha: 0.14, time: 0 });
+    const act = this.w?.act ?? 0;
+    // each act's grade: a gentle colour balance, a touch of contrast and saturation
+    const bal: [number, number, number][] = [[1.04, 1.03, 0.94], [0.98, 1.0, 0.97], [0.95, 1.0, 1.07], [1.07, 0.99, 0.9], [1.07, 0.95, 0.96], [1.07, 0.96, 0.9]];
+    const [mr, mg, mb] = bal[Math.min(bal.length - 1, act)];
+    this.grade.reset();
+    this.grade.matrix = [mr, 0, 0, 0, 0, 0, mg, 0, 0, 0, 0, 0, mb, 0, 0, 0, 0, 0, 1, 0];
+    this.grade.contrast(0.08, true);
+    this.grade.saturate(act === 1 ? -0.05 : 0.1, true);
+    const raysOn = q >= 2 && (act === 0 || act === 4) && this.mode !== 'menu';
+    this.app.stage.filters = q === 0 ? [] : q === 1 ? [this.grade, this.bloom] : [this.grade, this.bloom, this.shock, ...(raysOn ? [this.rays] : [])];
+    this.shock.time = this.shockT >= 0 ? this.shockT : 99;
+  }
+  /** A ripple through the screen from a world point. */
+  private shockwave(x: number, y: number) {
+    if (progress.settings.fx < 2 || !this.shock) return;
+    this.shock.center = { x: this.world.x + x * this.world.scale.x, y: this.world.y + y * this.world.scale.y };
+    this.shockT = 0;
   }
   private evolutionsPage(back: () => void) {
     const known = progress.evolutions, wise = progress.rescued.includes('ysolde');

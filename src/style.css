@@ -643,3 +643,4 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .shearts.p2 b { color: #9fffd0; font-weight: normal; font-size: 0.85em; animation: sheatpulse 0.6s ease-in-out infinite alternate; }
 .storm .shud .shearts.p2 { position: absolute; left: 8px; top: -30px; padding: 2px 8px; background: rgba(8, 6, 10, 0.8); border: 1px solid rgba(159, 255, 208, 0.4); white-space: nowrap; }
 .storm .shud .shearts.p2::before { content: 'P2 '; color: #9fffd0; font: 14px VT323, monospace; }
+.storm .sclasses .btn img.shero { width: 96px; height: 96px; image-rendering: pixelated; display: block; margin: 0 auto 4px; filter: drop-shadow(0 0 10px rgba(255, 150, 60, 0.35)); }

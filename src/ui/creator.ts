@@ -15,8 +15,9 @@ const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 export function portrait(look: Look, scale = 6): string {
   const src = wizardSprite(cleanLook(look)).canvas;
   const c = document.createElement('canvas');
-  c.width = src.width * scale;
-  c.height = src.height * scale;
+  const k = Math.max(1, Math.round((scale * 16) / src.width));
+  c.width = src.width * k;
+  c.height = src.height * k;
   const g = c.getContext('2d')!;
   g.imageSmoothingEnabled = false;
   g.drawImage(src, 0, 0, c.width, c.height);
