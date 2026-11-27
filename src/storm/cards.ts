@@ -59,6 +59,8 @@ export const MAX_MODS = 3;
 
 /** Everything about how a spell fires, worked out from its cards. */
 export interface SpellStats {
+  /** The evolution this spell has become, if its cards fuse into one. */
+  evo: string | null;
   dmg: number; speed: number; rate: number; mana: number;
   count: number; spread: number; ring: boolean;
   pierce: number; chain: number; homing: number; orbit: boolean; echo: boolean;
@@ -101,7 +103,7 @@ export function spellStats(cards: string[], dmgMul = 1, rateMul = 1): SpellStats
   const s: SpellStats = {
     ...b, burst: b.burst && { ...b.burst }, count: 1, spread: 0, ring: false, homing: 0, orbit: false, echo: false, burn: 0,
     bounce: 0, boomer: !!b.boomer, wave: false, twin: false, cluster: false, gravity: false, tick: b.tick ?? 0, boom: b.boom ?? 0, turret: !!b.turret,
-    splinter: false, shock: false, spiral: false, siphon: 0, leech: b.leech ?? 0,
+    splinter: false, shock: false, spiral: false, siphon: 0, leech: b.leech ?? 0, evo: null,
   };
   for (const m of cards) {
     switch (m) {
@@ -128,11 +130,29 @@ export function spellStats(cards: string[], dmgMul = 1, rateMul = 1): SpellStats
     }
   }
   if (s.burst) s.burst.n = Math.round(s.burst.n * (s.count > 1 ? 0.7 : 1));
+  // the right cards together fuse into something greater
+  for (const e of EVOLUTIONS) if (e.needs.every((c) => cards.includes(c))) { e.apply(s); s.evo = e.id; if (e.color) s.color = e.color; break; }
   s.dmg *= dmgMul;
   s.rate *= rateMul;
   s.mana = Math.round(s.mana * 10) / 10;
   return s;
 }
+
+/** Spell evolutions: put these cards in one spell and they fuse. */
+export const EVOLUTIONS: { id: string; name: string; needs: string[]; desc: string; color?: number; apply: (s: SpellStats) => void }[] = [
+  { id: 'hellfire', name: 'Hellfire Fan', needs: ['ember', 'split', 'burn'], desc: 'A wide fan of fire that sets everything alight.', color: 0xff5a1a, apply: (s) => { s.count += 2; s.burn += 3; s.dmg *= 1.25; } },
+  { id: 'winter', name: 'Winter’s Crown', needs: ['frost', 'nova', 'pierce'], desc: 'A ring of ice that pierces and freezes the room.', color: 0xbff4ff, apply: (s) => { s.slow = Math.max(s.slow, 0.6); s.pierce += 2; s.dmg *= 1.3; } },
+  { id: 'bramble', name: 'Bramble Bomb', needs: ['thorn', 'cluster'], desc: 'Seeds that burst twice over into a thicket of thorns.', color: 0x9cff5a, apply: (s) => { if (s.burst) { s.burst.n *= 2; s.burst.dmg *= 1.3; } s.dmg *= 1.2; } },
+  { id: 'tempest', name: 'Tempest', needs: ['spark', 'chain', 'haste'], desc: 'Lightning that leaps and stuns, faster than thought.', color: 0xd0e8ff, apply: (s) => { s.chain += 2; s.rate *= 1.2; s.dmg *= 1.2; s.shock = true; } },
+  { id: 'ossuary', name: 'Ossuary Lance', needs: ['bone', 'pierce', 'big'], desc: 'A lance that goes through a whole graveyard.', color: 0xfff0d0, apply: (s) => { s.pierce += 5; s.dmg *= 1.4; s.size *= 1.2; } },
+  { id: 'singularity', name: 'Singularity', needs: ['void', 'gravity'], desc: 'A small, patient black hole.', color: 0x6a3aff, apply: (s) => { s.size *= 1.5; s.dmg *= 1.4; s.life *= 1.3; } },
+  { id: 'starfall', name: 'Starfall', needs: ['meteor', 'split', 'echo'], desc: 'The sky comes down where you point, twice.', color: 0xffd06a, apply: (s) => { s.count += 2; s.boom *= 1.3; } },
+  { id: 'lanternhost', name: 'Lantern Host', needs: ['wisp', 'twin'], desc: 'A procession of wisps that never stop shooting.', color: 0x9fe0ff, apply: (s) => { s.count += 1; s.dmg *= 1.3; } },
+  { id: 'reaper', name: 'The Reaper', needs: ['scythe', 'boomer'], desc: 'One scythe, out and back, through everything.', color: 0xe8e0c8, apply: (s) => { s.dmg *= 1.6; s.size *= 1.3; } },
+  { id: 'bloodmoon', name: 'Blood Moon', needs: ['leech', 'siphon'], desc: 'Every hit drinks deep.', color: 0xff2a4a, apply: (s) => { s.leech *= 2; s.dmg *= 1.5; } },
+  { id: 'coil', name: 'Dragon’s Coil', needs: ['wave', 'spiral'], desc: 'Shots that writhe like a living thing.', color: 0xff8a3a, apply: (s) => { s.dmg *= 1.35; s.count += 1; } },
+  { id: 'shrapnel', name: 'Shrapnel Storm', needs: ['bounce', 'splinter'], desc: 'Every wall becomes a weapon.', color: 0xc8c8d0, apply: (s) => { s.bounce += 2; s.dmg *= 1.25; } },
+];
 
 /** One line describing what a spell does, for the forge. */
 export function spellSummary(cards: string[]): string {

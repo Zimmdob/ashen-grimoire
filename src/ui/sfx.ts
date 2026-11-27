@@ -3,6 +3,12 @@ let ctx: AudioContext | null = null;
 let muted = false;
 export const setMuted = (m: boolean) => { muted = m; };
 export const isMuted = () => muted;
+let vol = 1;
+/** Sound-effects volume, 0..1 (music has its own). */
+export const setSfxVolume = (v: number) => { vol = Math.max(0, Math.min(1, v)); globalThis.__agSfx = vol; };
+declare global { var __agSfx: number }
+globalThis.__agSfx ??= 1;
+void vol;
 
 /** The shared audio context (null while muted). */
 export function audioCtx(): AudioContext | null { return ac(); }
@@ -23,7 +29,7 @@ function tone(freq: number, dur: number, type: OscillatorType, vol: number, slid
   o.type = type;
   o.frequency.setValueAtTime(freq, a.currentTime);
   if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq + slide), a.currentTime + dur);
-  g.gain.setValueAtTime(vol, a.currentTime);
+  g.gain.setValueAtTime(Math.max(0.0002, vol * globalThis.__agSfx), a.currentTime);
   g.gain.exponentialRampToValueAtTime(0.0001, a.currentTime + dur);
   o.connect(g).connect(a.destination);
   o.start();
@@ -37,7 +43,7 @@ function noise(dur: number, vol: number, hp = 400) {
   const d = b.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
   const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
-  s.buffer = b; f.type = 'highpass'; f.frequency.value = hp; g.gain.value = vol;
+  s.buffer = b; f.type = 'highpass'; f.frequency.value = hp; g.gain.value = vol * globalThis.__agSfx;
   s.connect(f).connect(g).connect(a.destination);
   s.start();
 }

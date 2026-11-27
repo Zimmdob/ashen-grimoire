@@ -90,7 +90,7 @@ export const CLASSES: Record<ClassId, { name: string; desc: string; spells: [str
   stormcaller: { name: 'Stormcaller', desc: 'Lightning-fast. Sparks and arcs; her blink scorches (Phantom Step).', spells: [['spark'], ['arc', 'chain']], owned: ['spark', 'arc', 'chain'], hearts: 0, speed: 1.1, relic: 'phantom', tint: 0xd0b8ff },
   hollowheir: { name: 'Hollow Heir', desc: 'The King\u2019s empty crown, worn. Void orbs and gravity; a bone hound at heel. Unlocked by defeating the Hollow King.', spells: [['void', 'gravity'], ['scythe']], owned: ['void', 'gravity', 'scythe'], hearts: 2, speed: 1.05, relic: 'f_hound', tint: 0x9a8aff, locked: 'king' },
 };
-export type RoomKind = 'fight' | 'elite' | 'treasure' | 'shrine' | 'shop' | 'event' | 'boss';
+export type RoomKind = 'fight' | 'elite' | 'treasure' | 'shrine' | 'shop' | 'event' | 'boss' | 'rescue';
 export interface StormWorld {
   seed: number; time: number; map: number[][];
   diff: Difficulty; endless: boolean; loop: number;
@@ -127,7 +127,19 @@ export interface StormWorld {
   waveClock: number; auraT: number;
   /** When something last fell: stragglers that hang back too long come for you. */
   lastKill: number;
+  /** What the run started with: Sanctuary upgrades, Rook's pacts, the week's mutators. */
+  perks: Perks; pacts: string[]; mutators: string[];
+  /** Captives: those already safe at the Hearth, and the one in this room (if any). */
+  rescued: string[]; rescue: string | null;
+  /** Carrying Vell's Bell: the King's fall leads beneath the throne. */
+  bell: boolean; truePath: boolean; phoenixUsed: boolean;
 }
+export interface Perks { hearts: number; dmg: number; mana: number; bombs: number; xp: number; cinders: number; choices: number; revive: boolean; relic: boolean; speed: number; graze: number }
+export const NO_PERKS: Perks = { hearts: 0, dmg: 0, mana: 0, bombs: 0, xp: 0, cinders: 0, choices: 3, revive: false, relic: false, speed: 0, graze: 0 };
+/** Who waits in each act's cells, to be freed. */
+export const CAPTIVES = ['rook', 'brannoch', 'ysolde', 'hesk', 'vell'];
+const mut = (w: StormWorld, id: string) => w.mutators.includes(id);
+const pact = (w: StormWorld, id: string) => w.pacts.includes(id);
 
 // ------------------------------------------------------------------ boons: level-up upgrades within a run
 export const BOONS: Record<string, { name: string; desc: string; icon: string; max: number }> = {
@@ -153,7 +165,7 @@ export const xpNeed = (level: number) => 8 + level * 5;
 export function boonChoices(w: StormWorld): string[] {
   const open = Object.keys(BOONS).filter((id) => bn(w, id) < BOONS[id].max && !(id === 'vigor' && w.player.maxHp >= 9));
   const out: string[] = [];
-  while (out.length < 3 && open.length) out.push(open.splice(Math.floor(rand(w) * open.length), 1)[0]);
+  while (out.length < (w.perks?.choices ?? 3) && open.length) out.push(open.splice(Math.floor(rand(w) * open.length), 1)[0]);
   return out;
 }
 export function takeBoon(w: StormWorld, id: string) {
@@ -431,7 +443,7 @@ function freeSpot(w: StormWorld, r: number, farFrom: { x: number; y: number }, m
 }
 
 // ------------------------------------------------------------------ run setup
-export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId; rush?: boolean }
+export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId; rush?: boolean; perks?: Perks; pacts?: string[]; mutators?: string[]; rescued?: string[]; bell?: boolean }
 export function newRun(seed: number | RunOpts): StormWorld {
   const o: RunOpts = typeof seed === 'number' ? { seed } : seed;
   const diff = o.diff ?? 'normal';
@@ -445,8 +457,13 @@ export function newRun(seed: number | RunOpts): StormWorld {
     score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
     encounter: '', twist: null, twistT: 0, lastTwist: null, layout: 'groves',
     heat: 0, combo: 0, comboT: 0, bestCombo: 0, overdrive: 0, pendingLevels: 0, waveClock: 0, auraT: 0, lastKill: 0,
+    perks: { ...NO_PERKS, ...(o.perks ?? {}) }, pacts: [...(o.pacts ?? [])], mutators: [...(o.mutators ?? [])], rescued: [...(o.rescued ?? [])], rescue: null, bell: !!o.bell, truePath: false, phoenixUsed: false,
   };
- addRelic(w, C.relic);
+  addRelic(w, C.relic);
+  const pk = w.perks, p = w.player;
+  p.maxHp = Math.max(1, p.maxHp + pk.hearts); p.hp = p.maxHp;
+  p.dmgBonus += pk.dmg; p.bombs += pk.bombs; p.speedMul *= 1 + pk.speed;
+  if (pk.relic) { const r = relicChoices(w, 1)[0]; if (r) addRelic(w, r); }
   enterRoom(w, 1, 'fight');
   return w;
 }
@@ -458,7 +475,7 @@ const depth = (w: StormWorld) => 1 + w.act * 0.12 + w.loop * 0.45;
 /** Per-boss pressure, measured by the playtest lab so each act's boss is a step up from the last. */
 const BOSS_PRESSURE: Partial<Record<FoeType, number>> = { stag: 1, warden: 1, lich: 0.78, orrery: 1.6, choir: 0.88, king: 1.22, unwritten: 1.1 };
 const climb = (w: StormWorld) => (w.kind === 'boss' ? BOSS_PRESSURE[bossOf(w).type] ?? 1 : 1 + w.act * 0.07 + Math.max(0, Math.min(3, w.room) - 1) * 0.06);
-const bulletSpeed = (w: StormWorld) => DIFFICULTY[w.diff].speed * (1 + w.loop * 0.08) * (has(w, 'c_hurry') ? 1.12 : 1) * (1 + (climb(w) - 1) * 0.5);
+const bulletSpeed = (w: StormWorld) => DIFFICULTY[w.diff].speed * (1 + w.loop * 0.08) * (has(w, 'c_hurry') ? 1.12 : 1) * (1 + (climb(w) - 1) * 0.5) * (pact(w, 'haste') ? 1.15 : 1) * (mut(w, 'bullettime') ? 0.7 : 1);
 
 /** Enter room `room` of the current act (4 = the boss). */
 /** Enter room `room` (pass `twist` to choose the twist instead of rolling one: tests and debugging). */
@@ -477,10 +494,16 @@ export function enterRoom(w: StormWorld, room: number, kind?: RoomKind, twist?: 
   w.waves = [];
   if (w.kind === 'boss') {
     w.waves = [[{ type: bossOf(w).type, elite: false }]];
-    if (!w.rush && p.hp < p.maxHp) { p.hp++; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0xff6a7a, t: w.time, dur: 1.6, text: 'A moment\u2019s rest: +1 heart' }); }
+    if (!w.rush && !pact(w, 'norest') && p.hp < p.maxHp) { p.hp++; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0xff6a7a, t: w.time, dur: 1.6, text: 'A moment\u2019s rest: +1 heart' }); }
   }
-  w.encounter = ''; w.twist = null; w.twistT = 0;
-  if (w.kind === 'fight' || w.kind === 'elite') {
+  w.encounter = ''; w.twist = null; w.twistT = 0; w.rescue = null;
+  if (w.kind === 'rescue') {
+    w.kind = 'elite';
+    w.rescue = CAPTIVES[w.act] ?? null;
+    const t = act.tough.length ? act.tough : act.roster;
+    w.waves = [[{ type: pick(w, act.roster), elite: false }, { type: pick(w, act.roster), elite: false }, { type: pick(w, t), elite: false }], [{ type: pick(w, t), elite: true }, { type: pick(w, act.roster), elite: false }, { type: pick(w, act.roster), elite: false }]];
+    w.encounter = 'The Jailers';
+  } else if (w.kind === 'fight' || w.kind === 'elite') {
     const n = 3 + Math.min(3, w.act) + (room > 1 ? 1 : 0);
     const encs = ENCOUNTERS[w.act];
     if (encs) {
@@ -500,6 +523,8 @@ export function enterRoom(w: StormWorld, room: number, kind?: RoomKind, twist?: 
     if (w.kind === 'elite') w.waves[1].push({ type: pick(w, [...act.tough, ...act.roster]), elite: true });
     // most rooms get a twist, never the same one twice running
     if (twist !== undefined) { if (twist) applyTwist(w, twist); }
+    else if (mut(w, 'champions')) applyTwist(w, 'champions');
+    else if (mut(w, 'swarm')) applyTwist(w, 'horde');
     else if (rand(w) < (w.kind === 'elite' ? 0.85 : 0.75)) {
       const pool: Twist[] = w.kind === 'elite' ? ['duel', 'champions', 'ambush', 'meteors', 'blades'] : ['ambush', 'horde', 'siege', 'meteors', 'blades', 'thief', 'champions', 'ambush', 'horde'];
       let t = pick(w, pool);
@@ -565,6 +590,8 @@ export function nextAct(w: StormWorld): boolean {
 /** Two doors to choose between after a room (the third room always leads to the boss). */
 export function doorChoices(w: StormWorld): RoomKind[] {
   if (w.room >= ROOMS_PER_ACT) return ['boss'];
+  const cap = CAPTIVES[w.act];
+  if (cap && !w.rescued.includes(cap) && w.room === 1 && !w.rush && w.loop === 0) return ['rescue', pick(w, ['fight', 'elite', 'shop', 'treasure'] as RoomKind[])];
   const bag: RoomKind[] = ['fight', 'fight', 'elite', 'elite', 'treasure', 'shrine', 'shop', 'shop', 'event', 'event'];
   const a = pick(w, bag);
   let b = pick(w, bag);
@@ -574,12 +601,14 @@ export function doorChoices(w: StormWorld): RoomKind[] {
   return [a, b];
 }
 
+/** For scripted moments (the prologue): put a foe somewhere. */
+export function spawnAt(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number; y: number }) { spawnFoe(w, type, elite, at); return w.foes[w.foes.length - 1]; }
 function spawnFoe(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number; y: number }) {
   const boss = BOSSES[type];
   const fd = FOES[type];
   const base = boss ?? fd!;
-  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * (elite ? 3.2 : 1) * (boss ? 0.72 : w.twist === 'horde' ? 0.5 : w.twist === 'champions' ? 0.6 : w.twist === 'duel' ? 1.4 : 1);
-  const r = base.r * (elite ? 1.3 : 1);
+  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * ((elite || boss) && pact(w, 'iron') ? 1.3 : 1) * (mut(w, 'giants') && !boss ? 1.6 : 1) * (elite ? 3.2 : 1) * (boss ? 0.72 : w.twist === 'horde' ? 0.5 : w.twist === 'champions' ? 0.6 : w.twist === 'duel' ? 1.4 : 1);
+  const r = base.r * (elite ? 1.3 : 1) * (mut(w, 'giants') && !boss ? 1.3 : 1);
   const p = at ?? (boss ? { x: AW / 2, y: TILE * 5 } : freeSpot(w, r, w.player, 230, true));
   const f: Foe = {
     id: w.nextId++, type, x: p.x, y: p.y, r, hp: base.hp * hpMul, maxHp: base.hp * hpMul, speed: base.speed * (elite ? 1.15 : 1),
@@ -588,6 +617,7 @@ function spawnFoe(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number
     affix: elite ? pick(w, Object.keys(AFFIXES) as Affix[]) : null,
   };
   if (f.affix === 'swift') f.speed *= 1.5;
+  if (mut(w, 'giants') && !boss) f.speed *= 0.8;
   if (f.affix) w.fx.push({ kind: 'text', x: f.x, y: f.y - 30, color: 0xffd06a, t: w.time, dur: 2, text: w.twist === 'duel' ? w.encounter : `${AFFIXES[f.affix]} champion` });
   if (boss) w.bossHits = w.stats.hitsTaken;
   const timed = boss ? boss.phases.flatMap((ph) => ph.timed) : fd!.timed ?? [];
@@ -611,7 +641,7 @@ function foeShot(w: StormWorld, x: number, y: number, ang: number, speed: number
   return bullet(w, { x, y, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, r, dmg: 1, life: 10, friendly: false, color, ...extra });
 }
 const aimAt = (f: { x: number; y: number }, p: { x: number; y: number }) => Math.atan2(p.y - f.y, p.x - f.x);
-const dens = (w: StormWorld, n: number) => Math.max(1, Math.round(n * DIFFICULTY[w.diff].density * (1 + w.loop * 0.12) * climb(w)));
+const dens = (w: StormWorld, n: number) => Math.max(1, Math.round(n * DIFFICULTY[w.diff].density * (1 + w.loop * 0.12) * climb(w) * (pact(w, 'bloodmoon') ? 1.2 : 1) * (mut(w, 'bullettime') ? 1.4 : 1)));
 
 /** Fire one of a foe's patterns. */
 function runPat(w: StormWorld, f: Foe, pt: Pat) {
@@ -721,7 +751,7 @@ function fireSpell(w: StormWorld, slot: 0 | 1, ang: number, s: SpellStats, isEch
   const p = w.player;
   const dmgMul = (has(w, 'glass') ? 1.6 : 1) * (has(w, 'overflow') && p.mana > p.maxMana * 0.8 ? 1.35 : 1) * (1 + p.dmgBonus)
     * (has(w, 'dancer') && p.moving ? 1.25 : 1) * (has(w, 'stillwater') && p.stillT > 0.6 ? 1.6 : 1)
-    * (1 + 0.15 * bn(w, 'might')) * comboMul(w) * (w.overdrive > 0 ? 1.5 : 1);
+    * (1 + 0.15 * bn(w, 'might')) * comboMul(w) * (w.overdrive > 0 ? 1.5 : 1) * (mut(w, 'glass') ? 2 : 1);
   if (slot === 0 && bn(w, 'volley')) { s.count += bn(w, 'volley'); if (!s.spread) s.spread = 0.2; }
   s.speed *= 1 + 0.15 * bn(w, 'velocity'); s.size *= 1 + 0.3 * bn(w, 'girth'); s.pierce += bn(w, 'pierce'); s.dmg *= (1 + 0.08 * bn(w, 'girth')) * (1 + 0.1 * bn(w, 'pierce'));
   const n = s.count;
@@ -828,7 +858,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       w.sounds.push('portal', 'boom');
     }
     p.inv = Math.max(0, p.inv - dt);
-    p.mana = Math.min(p.maxMana, p.mana + 31 * (has(w, 'moonwell') ? 1.5 : 1) * (1 + 0.25 * bn(w, 'wellspring')) * (w.overdrive > 0 ? 3 : 1) * dt);
+    p.mana = Math.min(p.maxMana, p.mana + 31 * (1 + w.perks.mana) * (has(w, 'moonwell') ? 1.5 : 1) * (1 + 0.25 * bn(w, 'wellspring')) * (w.overdrive > 0 ? 3 : 1) * dt);
     // shoot
     const rateMul = (has(w, 'quickcast') ? 1.2 : 1) * (has(w, 'lastrites') && p.hp === 1 ? 1.5 : 1) * (1 + 0.12 * bn(w, 'haste')) * (w.overdrive > 0 ? 1.8 : 1);
     const costMul = has(w, 'heavyhand') ? 0.75 : 1;
@@ -1172,7 +1202,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
         // a graze: a near miss feeds your mana (and your score)
         b.grazed = true;
         w.stats.grazes++;
-        w.heat = Math.min(100, w.heat + 1.6 * (1 + 0.5 * bn(w, 'frenzy')));
+        w.heat = Math.min(100, w.heat + 1.6 * (1 + 0.5 * bn(w, 'frenzy')) * (1 + w.perks.graze) * (mut(w, 'overcharge') ? 3 : 1));
         p.mana = Math.min(p.maxMana, p.mana + (has(w, 'grazer') ? 9 : 3));
         if (has(w, 'grazer') && w.stats.grazes % 3 === 0) p.cinders++;
         w.score += 5 * scoreMul(w);
@@ -1202,7 +1232,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     if ((dd < 14 || dd <= sp * dt) && !p.dead) {
       if (k.kind === 'cinder') p.cinders += k.n;
       else if (k.kind === 'xp') {
-        p.xp += k.n * (1 + 0.2 * bn(w, 'magnet'));
+        p.xp += k.n * (1 + 0.2 * bn(w, 'magnet')) * (1 + w.perks.xp) * (mut(w, 'plenty') ? 2 : 1);
         while (p.xp >= xpNeed(p.level)) { p.xp -= xpNeed(p.level); p.level++; w.pendingLevels++; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0x9fffd0, t: w.time, dur: 1.2, text: 'Level up!' }); w.fx.push({ kind: 'ring', x: p.x, y: p.y, color: 0x9fffd0, t: w.time, dur: 0.5, r: 60 }); w.sounds.push('heal'); }
       } else p.hp = Math.min(p.maxHp, p.hp + 1);
       if (k.kind !== 'xp') w.sounds.push(k.kind === 'heart' ? 'heal' : 'click');
@@ -1273,9 +1303,10 @@ function killed(w: StormWorld, f: Foe) {
   const p = w.player;
   w.stats.kills++;
   w.lastKill = w.time;
+  if (mut(w, 'volatile') && !f.boss && f.type !== 'brazier') { const n = dens(w, 8), a0 = rand(w) * 6; for (let i = 0; i < n; i++) foeShot(w, f.x, f.y, a0 + (i / n) * Math.PI * 2, 110, 0xff8a3a); }
   if (f.type !== 'brazier') {
     w.combo++; w.comboT = 2.6; w.bestCombo = Math.max(w.bestCombo, w.combo);
-    w.heat = Math.min(100, w.heat + (f.boss ? 40 : f.elite ? 18 : 7) * (1 + 0.5 * bn(w, 'frenzy')));
+    w.heat = Math.min(100, w.heat + (f.boss ? 40 : f.elite ? 18 : 7) * (1 + 0.5 * bn(w, 'frenzy')) * (mut(w, 'overcharge') ? 3 : 1));
     if ([10, 25, 50, 100].includes(w.combo)) { w.fx.push({ kind: 'text', x: p.x, y: p.y - 40, color: 0xffd06a, t: w.time, dur: 1.3, text: `${w.combo} combo!` }); w.sounds.push('portal'); }
     // experience gems
     const xp = f.boss ? 30 : f.elite ? 8 : Math.max(1, Math.round((FOES[f.type]?.cinders ?? 2) * 0.8));
@@ -1287,9 +1318,9 @@ function killed(w: StormWorld, f: Foe) {
   w.sounds.push(f.boss ? 'portal' : 'die');
   if (f.boss && w.stats.hitsTaken === w.bossHits) w.stats.flawless++;
   if (f.type === 'unwritten') w.stats.secret++;
-  if (f.boss) { w.stats.bosses++; w.bullets = w.bullets.filter((b) => b.friendly); w.hazards = []; w.foes.length = 0; w.waves = []; if (w.act === ACTS.length - 1) w.won = true; }
+  if (f.boss) { w.stats.bosses++; w.bullets = w.bullets.filter((b) => b.friendly); w.hazards = []; w.foes.length = 0; w.waves = []; if (w.act === ACTS.length - 1) { if (f.type === 'king' && w.bell && w.loop === 0) w.truePath = true; else w.won = true; } }
   // cinders (and, now and then, a heart)
-  const n = Math.round((f.boss ? BOSSES[f.type]!.cinders : (FOES[f.type]?.cinders ?? 1) * (f.elite ? 6 : 1)) * (has(w, 'magnet') ? 1.5 : 1) * (has(w, 'goldtooth') ? 2 : 1) * (has(w, 'c_poverty') ? 0.5 : 1));
+  const n = Math.round((f.boss ? BOSSES[f.type]!.cinders : (FOES[f.type]?.cinders ?? 1) * (f.elite ? 6 : 1)) * Math.max(0.2, 1 + w.perks.cinders) * (has(w, 'magnet') ? 1.5 : 1) * (has(w, 'goldtooth') ? 2 : 1) * (has(w, 'c_poverty') ? 0.5 : 1));
   if (f.affix === 'splitting' && ACTS[w.act].roster.length) for (let i = 0; i < 3; i++) spawnFoe(w, pick(w, ACTS[w.act].roster), false, { x: f.x + (i - 1) * 24, y: f.y });
   for (let i = 0; i < Math.min(12, n); i++) { const a = rand(w) * Math.PI * 2, s = 60 + rand(w) * 120; w.pickups.push({ kind: 'cinder', x: f.x, y: f.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, n: Math.ceil(n / Math.min(12, n)), t: 0 }); }
   if ((f.elite || rand(w) < 0.025) && p.hp < p.maxHp) w.pickups.push({ kind: 'heart', x: f.x, y: f.y, vx: 0, vy: -60, n: 1, t: 0 });
@@ -1312,7 +1343,7 @@ function hurtPlayer(w: StormWorld) {
     w.sounds.push('freeze');
     return;
   }
-  p.hp -= 1;
+  p.hp -= mut(w, 'glass') ? 2 : 1;
   p.inv = 1.1;
   if (w.combo >= 5) w.fx.push({ kind: 'text', x: p.x, y: p.y - 34, color: 0xff6a6a, t: w.time, dur: 1, text: `combo lost` });
   w.combo = 0; w.comboT = 0; w.heat = Math.max(0, w.heat - 30);
@@ -1322,6 +1353,14 @@ function hurtPlayer(w: StormWorld) {
   for (let j = w.bullets.length - 1; j >= 0; j--) { const b = w.bullets[j]; if (!b.friendly && Math.hypot(b.x - p.x, b.y - p.y) < 70) w.bullets.splice(j, 1); }
   if (has(w, 'thornhide')) for (let k = 0; k < 16; k++) { const a = (k / 16) * Math.PI * 2; bullet(w, { x: p.x, y: p.y, vx: Math.cos(a) * 360, vy: Math.sin(a) * 360, r: 4, dmg: 8, life: 0.6, friendly: true, color: 0x9cff5a }); }
   if (p.hp <= 0) {
+    if (w.perks.revive && !w.phoenixUsed) {
+      w.phoenixUsed = true; p.hp = 2; p.inv = 2.4;
+      w.bullets = w.bullets.filter((b) => b.friendly);
+      w.fx.push({ kind: 'nova', x: p.x, y: p.y, color: 0xffb04a, t: w.time, dur: 0.9, r: 900 });
+      w.fx.push({ kind: 'text', x: p.x, y: p.y - 24, color: 0xffb04a, t: w.time, dur: 1.6, text: 'Phoenix Ember!' });
+      w.sounds.push('portal');
+      return;
+    }
     if (has(w, 'secondwind') && !p.revived) {
       p.revived = true; p.hp = 3; p.inv = 2.2;
       w.bullets = w.bullets.filter((b) => b.friendly);

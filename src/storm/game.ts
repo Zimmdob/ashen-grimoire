@@ -3,10 +3,13 @@ import { drawLava, drawMap } from '../render/mapArt';
 import { buildSprites, type SpriteSet } from '../render/sprites';
 import { cardIcon, SCHOOL_COLOR } from '../ui/icons';
 import { music } from '../ui/music';
-import { play } from '../ui/sfx';
+import { play, setSfxVolume } from '../ui/sfx';
 import { meta, saveMeta } from '../ui/meta';
+import { addCodex, buyUpgrade, DEFAULT_KEYS, lvl, MUTATORS, PACTS, pactBonus, progress, recordRun, runPerks, saveProgress, UPGRADES, upgradeCost, weekKey, weeklyMutators, type NpcId } from './progress';
+import { BOSS_CODEX, BOSS_LINES, CODEX, ENDINGS, nextLine, NPCS, TALK } from './story';
+import { paintSanctuary, SCENE_H, SCENE_W, STATIONS } from './hub';
 import type { LevelSnap } from '../sim/types';
-import { BASES, CURSE_IDS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STORM_CARDS } from './cards';
+import { BASES, CURSE_IDS, EVOLUTIONS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STORM_CARDS } from './cards';
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
   ROOMS_PER_ACT, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
@@ -85,6 +88,7 @@ const DOORS: Record<RoomKind, { name: string; desc: string; glyph: string }> = {
   shop: { name: 'Pedlar', desc: 'Spend your cinders on cards, relics, hearts and Ash Novas.', glyph: '⚖' },
   event: { name: 'Strange Lights', desc: 'Something unusual. It may help; it may cost you.', glyph: '?' },
   boss: { name: 'The Lord of this place', desc: 'The act’s boss.', glyph: '☠' },
+  rescue: { name: 'A Cell', desc: 'Someone is held here, guarded by jailers. Free them, and they will find your Hearth.', glyph: '⛓' },
 };
 
 type Bright = 'dim' | 'normal' | 'bright';
@@ -189,15 +193,25 @@ class Cinderstorm {
   private famSprites = new Map<string, Sprite>();
   private twistText = '';
   private surgeQueued = false;
+  private rebind: ((k: string) => void) | null = null;
+  private evoSeen = new Set<string>();
   private rush = false;
+  private weekly = false;
+  private bellNext = false;
+  private rerolls = 0;
+  private hubTimer = 0;
+  private bossesFelled: string[] = [];
+  private sayEl!: HTMLElement;
   private seen: string[] = (() => { try { return JSON.parse(localStorage.getItem('ashen-storm-seen') || '[]') as string[]; } catch { return []; } })();
 
   constructor(private onExit: () => void) {}
 
   async boot() {
     this.root.className = 'storm';
-    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="sbars"><div class="sxp"><i></i><b></b></div><div class="sheat"><i></i><b></b></div></div><div class="spanel"></div>`;
+    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="sbars"><div class="sxp"><i></i><b></b></div><div class="sheat"><i></i><b></b></div></div><div class="spanel"></div><div class="ssay"><canvas></canvas><div><b></b><p></p></div></div>`;
     document.body.appendChild(this.root);
+    this.sayEl = this.root.querySelector('.ssay')!;
+    this.applySettings();
     this.hud = this.root.querySelector('.shud')!;
     this.panel = this.root.querySelector('.spanel')!;
     await this.app.init({ resizeTo: this.root, background: '#05030a', antialias: false, resolution: 1, roundPixels: true, preference: 'webgl' });
@@ -232,12 +246,19 @@ class Cinderstorm {
     this.w = newRun({ seed: this.seed });
     this.buildMap();
     this.unitLayer.addChild(this.playerSprite);
-    this.menu();
+    this.sanctuary();
   }
 
   private startRun() {
     const seed = this.daily ? dailySeed(today()) : this.seed;
-    this.w = newRun({ seed, diff: this.daily ? 'normal' : this.diff, endless: this.daily || this.rush ? false : this.endless, cls: this.cls, rush: this.rush && !this.daily });
+    const wk = weeklyMutators();
+    const plain = this.daily || this.weekly;
+    this.w = newRun({ seed: this.weekly ? wk.seed : seed, diff: plain ? 'normal' : this.diff, endless: plain || this.rush ? false : this.endless, cls: this.cls, rush: this.rush && !plain,
+      perks: runPerks(), pacts: plain ? [] : [...progress.pacts], mutators: this.weekly ? wk.mutators : [], rescued: [...progress.rescued], bell: this.bellNext && !plain && !this.rush });
+    this.rerolls = lvl('reroll');
+    this.root.classList.remove('hubmode');
+    this.bossesFelled = [];
+    addCodex('hearth');
     this.shards = [];
     this.seed = (this.seed * 1103515245 + 12345) | 0;
     this.owned = [...CLASSES[this.cls].owned];
@@ -319,8 +340,10 @@ class Cinderstorm {
     const k = e.key.toLowerCase();
     if (k === 'escape') { e.preventDefault(); if (this.mode === 'play') this.pause(); else if (this.mode === 'paused') this.resume(); return; }
     if (k === ' ' || k === 'tab') e.preventDefault();
-    if ((k === 'f' || k === 'e') && !e.repeat) this.bombQueued = true;
-    if ((k === 'q' || k === 'r') && !e.repeat) this.surgeQueued = true;
+    if (this.rebind) { e.preventDefault(); this.rebind(k); return; }
+    const kb = progress.settings.keys;
+    if ((k === kb.nova || k === 'e') && !e.repeat) this.bombQueued = true;
+    if ((k === kb.surge || k === 'r') && !e.repeat) this.surgeQueued = true;
     if ((k === '1' || k === '2' || k === '3') && this.mode === 'paused') { this.panel.querySelectorAll<HTMLElement>('[data-boon]')[Number(k) - 1]?.click(); return; }
     this.keys.add(k);
   };
@@ -331,15 +354,15 @@ class Cinderstorm {
     this.inp.my = (e.clientY - r.top - this.world.y) / this.scale;
   }
   private readKeys() {
-    const k = this.keys;
-    this.inp.up = k.has('w') || k.has('arrowup');
-    this.inp.down = k.has('s') || k.has('arrowdown');
-    this.inp.left = k.has('a') || k.has('arrowleft');
-    this.inp.right = k.has('d') || k.has('arrowright');
-    this.inp.blink = k.has(' ');
-    this.inp.focus = k.has('shift');
-    this.inp.fireA = this.ptrA || k.has('j');
-    this.inp.fireB = this.ptrB || k.has('k');
+    const k = this.keys, b = progress.settings.keys;
+    this.inp.up = k.has(b.up) || k.has('arrowup');
+    this.inp.down = k.has(b.down) || k.has('arrowdown');
+    this.inp.left = k.has(b.left) || k.has('arrowleft');
+    this.inp.right = k.has(b.right) || k.has('arrowright');
+    this.inp.blink = k.has(b.blink);
+    this.inp.focus = k.has(b.focus);
+    this.inp.fireA = this.ptrA || k.has(b.fireA) || (progress.settings.autofire && this.w?.foes.some((f) => f.state !== 'spawn'));
+    this.inp.fireB = this.ptrB || k.has(b.fireB);
     this.readPad();
   }
 
@@ -409,6 +432,7 @@ class Cinderstorm {
 
   /** React to new effects: flashes, hit-stop, the phase banner. */
   private watchFx() {
+    queueMicrotask(() => { this.lastFxT = this.w.time; });
     for (const f of this.w.fx) {
       if (this.seenFx.has(f)) continue;
       this.seenFx.add(f);
@@ -428,7 +452,18 @@ class Cinderstorm {
     for (const f of this.w.foes) if (!this.seen.includes(f.type)) { this.seen.push(f.type); try { localStorage.setItem('ashen-storm-seen', JSON.stringify(this.seen)); } catch { /* storage unavailable */ } }
     // a boss arriving gets a title card
     const boss = this.w.foes.find((f) => f.boss);
-    if (boss && this.announced !== boss.id) { this.announced = boss.id; this.punch = 0.06; this.banner(bossOf(this.w).name, boss.type === 'unwritten' ? 'The book that was never written' : ACTS[this.w.act].epithet); }
+    if (boss && this.announced !== boss.id) {
+      this.announced = boss.id; this.punch = 0.06;
+      this.banner(bossOf(this.w).name, boss.type === 'unwritten' ? 'The book that was never written' : ACTS[this.w.act].epithet);
+      const L = BOSS_LINES[boss.type], met = progress.bossMet[boss.type] ?? 0;
+      if (L) this.say(bossOf(this.w).name, this.w.bell && L.truePath ? L.truePath : met ? L.again[met % L.again.length] : L.first, boss.type, 6);
+      progress.bossMet[boss.type] = met + 1; saveProgress();
+    }
+    for (const f of this.w.fx) if (f.kind === 'die' && f.t > this.lastFxT - 0.001 && f.src && BOSS_LINES[f.src] && !this.bossesFelled.includes(f.src) && (f.r ?? 0) > 18) {
+      this.bossesFelled.push(f.src);
+      this.say(FOE_INFO[f.src]?.[0] ?? f.src, BOSS_LINES[f.src].fall, f.src, 5);
+      const page = BOSS_CODEX[f.src]; if (page && addCodex(page).length) this.toast(`Codex: ${CODEX[page].title}`);
+    }
   }
 
   /** Break a sprite into its pixels and fling them outward. */
@@ -448,6 +483,21 @@ class Cinderstorm {
       this.shards.push({ x: x + ox, y: y + oy, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, c: q.c, life: 0.6 + Math.random() * 0.6, age: 0, s: scale });
     }
     if (this.shards.length > 3000) this.shards.splice(0, this.shards.length - 3000);
+  }
+  /** Someone speaks: a portrait and a line at the bottom of the screen, without stopping play. */
+  private say(name: string, text: string, sprite: string, secs = 5) {
+    const el = this.sayEl, cv = el.querySelector('canvas')!;
+    const src = (this.sprites[SPRITE_OF[sprite] ?? sprite] ?? this.sprites.ghoul).canvas;
+    cv.width = cv.height = 48; const g = cv.getContext('2d')!; g.imageSmoothingEnabled = false; g.clearRect(0, 0, 48, 48); g.drawImage(src, 0, 0, 48, 48);
+    el.querySelector('b')!.textContent = name; el.querySelector('p')!.textContent = text;
+    el.classList.add('on');
+    clearTimeout(this.sayT); this.sayT = window.setTimeout(() => el.classList.remove('on'), secs * 1000);
+  }
+  private sayT = 0;
+  private lastFxT = 0;
+  private toast(text: string) {
+    const t = document.createElement('div'); t.className = 'stoast'; t.textContent = text; this.root.appendChild(t);
+    setTimeout(() => t.remove(), 3200);
   }
   private bannerT = 0;
   private banner(title: string, sub: string) {
@@ -505,10 +555,11 @@ class Cinderstorm {
     this.vignette.alpha = 0.7;
     this.flash.a *= 0.88;
     this.flashG.clear();
-    if (this.flash.a > 0.01) this.flashG.rect(0, 0, sw, sh).fill({ color: this.flash.color, alpha: this.flash.a });
+    if (this.flash.a > 0.01) this.flashG.rect(0, 0, sw, sh).fill({ color: this.flash.color, alpha: this.flash.a * (progress.settings.flash ? 1 : 0.2) });
     this.scale = Math.min(sw / AW, (sh - 52) / AH);
     this.shake *= 0.88;
-    const sx = (Math.random() - 0.5) * this.shake, sy = (Math.random() - 0.5) * this.shake;
+    const sk = this.shake * progress.settings.shake;
+    const sx = (Math.random() - 0.5) * sk, sy = (Math.random() - 0.5) * sk;
     // camera punch: a quick zoom toward the centre on big moments
     this.punch *= 0.9;
     const zs = this.scale * (1 + this.punch);
@@ -634,6 +685,7 @@ class Cinderstorm {
       h.scale.set((b.r * (b.friendly ? 3.6 : 5) * wake) / 32);
       h.alpha = b.friendly ? (b.turret ? 0.7 : 0.45) : 0.55;
       o.tint = b.color;
+      if (progress.settings.contrast && !b.friendly) { h.tint = 0xff00aa; o.tint = 0xff2a8a; h.alpha = 0.8; }
       o.scale.set((b.r * 2.3 * wake) / 32);
       o.alpha = b.friendly ? 0.75 : 1;
       c.scale.set((b.r * (b.friendly ? 1.3 : 1.5) * wake) / 32);
@@ -722,7 +774,8 @@ class Cinderstorm {
     h.clear();
     if (!p.dead) {
       if (p.shield) h.circle(p.x, p.y, 17).stroke({ width: 2, color: 0x8fd0ff, alpha: 0.5 + 0.3 * Math.sin(now / 150) });
-      h.circle(p.x, p.y, p.r + 1).fill({ color: 0xffffff, alpha: this.inp.focus ? 1 : 0.55 }).stroke({ width: 1.5, color: 0xff4a8a, alpha: this.inp.focus ? 1 : 0.5 });
+      const showHit = this.inp.focus || progress.settings.hitbox;
+      h.circle(p.x, p.y, p.r + 1).fill({ color: 0xffffff, alpha: showHit ? 1 : 0.55 }).stroke({ width: 1.5, color: 0xff4a8a, alpha: showHit ? 1 : 0.5 });
       if (this.inp.focus) h.circle(p.x, p.y, p.r + 16).stroke({ width: 1, color: 0xffffff, alpha: 0.22 });
       h.moveTo(p.x + Math.cos(p.face) * 14, p.y + Math.sin(p.face) * 14).lineTo(p.x + Math.cos(p.face) * 30, p.y + Math.sin(p.face) * 30).stroke({ width: 2, color: 0xe9dcc0, alpha: 0.45 });
     }
@@ -806,11 +859,13 @@ class Cinderstorm {
   private hudKey = '';
   private drawHud() {
     const w = this.w, p = w.player;
+    for (const cards of w.spells) { const ev = spellStats(cards)?.evo; if (ev && !this.evoSeen.has(ev)) { this.evoSeen.add(ev); const e = EVOLUTIONS.find((x) => x.id === ev)!; this.banner(`Evolution: ${e.name}`, e.desc); play('portal'); if (!progress.evolutions.includes(ev)) { progress.evolutions.push(ev); saveProgress(); } } }
     const spell = (cards: string[], label: string, cd: number) => {
       const s = spellStats(cards);
       const ready = s ? Math.max(0, 1 - cd * s.rate) : 0;
       const short = s && p.mana < s.mana;
-      return `<div class="sslot ${short ? 'short' : ''}"><em>${label}</em>${cards.map((c) => `<img alt="${esc(STORM_CARDS[c].name)}" title="${esc(STORM_CARDS[c].name)}" src="${cardIcon(STORM_CARDS[c].icon, STORM_CARDS[c].school)}">`).join('')}<u style="width:${Math.round(ready * 100)}%"></u></div>`;
+      const evo = s?.evo ? EVOLUTIONS.find((x) => x.id === s.evo) : null;
+      return `<div class="sslot ${short ? 'short' : ''} ${evo ? 'evo' : ''}" ${evo ? `title="${esc(evo.name)}"` : ''}><em>${evo ? '✶' : label}</em>${cards.map((c) => `<img alt="${esc(STORM_CARDS[c].name)}" title="${esc(STORM_CARDS[c].name)}" src="${cardIcon(STORM_CARDS[c].icon, STORM_CARDS[c].school)}">`).join('')}<u style="width:${Math.round(ready * 100)}%"></u></div>`;
     };
     const act = ACTS[w.act];
     const where = w.kind === 'boss' ? bossOf(w).name : `${act.name} · ${Math.min(w.room, ROOMS_PER_ACT)}/${ROOMS_PER_ACT}`;
@@ -879,25 +934,200 @@ class Cinderstorm {
       <div class="sdiff">${(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => `<button type="button" class="btn ${this.diff === d ? 'ember' : ''}" data-d="${d}"><b>${DIFFICULTY[d].name}</b><small>${esc(DIFFICULTY[d].desc)}</small>${b[d] ? `<small>Best: ${b[d]!.toLocaleString()}</small>` : ''}</button>`).join('')}</div>
       <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
       <label class="sendless"><input type="checkbox" id="sEndless" ${this.endless ? 'checked' : ''}> The Abyss: after the Hollow King, loop back to the start, harder each time, for as long as you last.${this.best.abyss ? ` (Deepest: Abyss ${this.best.abyss})` : ''}</label>
-      <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="rush">Boss rush</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="beasts">Bestiary ${this.seen.filter((x) => FOE_INFO[x]).length}/${Object.keys(FOE_INFO).length}</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
+      <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="rush">Boss rush</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="beasts">Bestiary ${this.seen.filter((x) => FOE_INFO[x]).length}/${Object.keys(FOE_INFO).length}</button><button type="button" class="btn" data-s="home">Back to the Hearth</button></div>`);
+    this.on('[data-s="home"]', () => this.sanctuary());
     this.on('[data-bright]', (el) => { this.setBright(el.dataset.bright as Bright); this.menu(); });
     this.on('[data-cls]', (el) => { this.cls = el.dataset.cls as ClassId; this.best.cls = this.cls; saveBest(this.best); this.menu(); });
-    this.on('[data-s="daily"]', () => { this.daily = true; this.rush = false; this.startRun(); });
-    this.on('[data-s="rush"]', () => { this.daily = false; this.rush = true; this.startRun(); });
+    this.on('[data-s="daily"]', () => { this.daily = true; this.rush = false; this.weekly = false; this.startRun(); });
+    this.on('[data-s="rush"]', () => { this.daily = false; this.rush = true; this.weekly = false; this.startRun(); });
     this.on('[data-s="beasts"]', () => this.bestiary());
     this.on('[data-s="ach"]', () => this.achievements());
     this.on('[data-d]', (el) => { this.diff = el.dataset.d as Difficulty; this.menu(); });
     this.panel.querySelector<HTMLInputElement>('#sEndless')!.addEventListener('change', (e) => { this.endless = (e.target as HTMLInputElement).checked; });
-    this.on('[data-s="go"]', () => { this.daily = false; this.rush = false; this.startRun(); });
-    this.on('[data-s="quit"]', () => this.exit());
+    this.on('[data-s="go"]', () => { this.daily = false; this.rush = false; this.weekly = false; this.startRun(); });
   }
 
-  private bestiary() {
+  // ================================================================== the Last Hearth
+  /** Options and accessibility. */
+  private options(back: () => void) {
+    const st = progress.settings;
+    const names: Record<string, string> = { up: 'Move up', down: 'Move down', left: 'Move left', right: 'Move right', blink: 'Blink', focus: 'Focus', nova: 'Ash Nova', surge: 'Overdrive', fireA: 'First spell (key)', fireB: 'Second spell (key)' };
+    const keyName = (k: string) => (k === ' ' ? 'Space' : k.length === 1 ? k.toUpperCase() : k[0].toUpperCase() + k.slice(1));
+    this.show(`<h2>Options</h2>
+      <div class="sopts">
+        <label>Sound effects <input type="range" min="0" max="1" step="0.05" data-o="sfx" value="${st.sfx}"></label>
+        <label>Music <input type="range" min="0" max="1" step="0.05" data-o="music" value="${st.music}"></label>
+        <label>Screen shake <input type="range" min="0" max="1.5" step="0.25" data-o="shake" value="${st.shake}"></label>
+        <label>Text size <input type="range" min="0.85" max="1.4" step="0.05" data-o="textScale" value="${st.textScale}"></label>
+        <label><input type="checkbox" data-c="flash" ${st.flash ? 'checked' : ''}> Full-strength screen flashes (off: softened, for light sensitivity)</label>
+        <label><input type="checkbox" data-c="hitbox" ${st.hitbox ? 'checked' : ''}> Always show my hitbox</label>
+        <label><input type="checkbox" data-c="contrast" ${st.contrast ? 'checked' : ''}> High-contrast foe shots (all bright magenta)</label>
+        <label><input type="checkbox" data-c="autofire" ${st.autofire ? 'checked' : ''}> Auto-fire my first spell when foes are near</label>
+      </div>
+      <h3>Keys</h3><div class="skeysmap">${Object.keys(DEFAULT_KEYS).map((a) => `<button type="button" class="btn small" data-key="${a}"><b>${names[a]}</b> ${esc(keyName(st.keys[a]))}</button>`).join('')}</div>
+      <p class="k">Click an action, then press its new key. Arrow keys always move.</p>
+      <div class="row"><button type="button" class="btn small" data-s="reset">Reset keys</button><button type="button" class="btn ember" data-s="back">Done</button></div>`);
+    for (const r of this.panel.querySelectorAll<HTMLInputElement>('[data-o]')) r.addEventListener('input', () => { (st as unknown as Record<string, number>)[r.dataset.o!] = Number(r.value); this.applySettings(); saveProgress(); if (r.dataset.o === 'sfx') play('click'); });
+    for (const c of this.panel.querySelectorAll<HTMLInputElement>('[data-c]')) c.addEventListener('change', () => { (st as unknown as Record<string, boolean>)[c.dataset.c!] = c.checked; saveProgress(); });
+    this.on('[data-key]', (el) => { el.textContent = 'Press a key…'; this.rebind = (k) => { if (k !== 'escape') st.keys[el.dataset.key!] = k; this.rebind = null; saveProgress(); this.options(back); }; });
+    this.on('[data-s="reset"]', () => { st.keys = { ...DEFAULT_KEYS }; saveProgress(); this.options(back); });
+    this.on('[data-s="back"]', back);
+  }
+  private applySettings() {
+    const st = progress.settings;
+    setSfxVolume(st.sfx);
+    music.setVolume(0.5 * st.music);
+    this.root.style.setProperty('--storm-text', String(st.textScale));
+  }
+  private evolutionsPage(back: () => void) {
+    const known = progress.evolutions, wise = progress.rescued.includes('ysolde');
+    this.show(`<h2>Spell evolutions</h2><p>Put these cards together in one spell and they fuse into something greater. ${wise ? 'Ysolde has noted a card from each one you have not found yet.' : ''}</p>
+      <div class="sevos">${EVOLUTIONS.map((e) => known.includes(e.id) ? `<div class="got"><b>✶ ${esc(e.name)}</b><span>${e.needs.map((c) => esc(STORM_CARDS[c]?.name ?? c)).join(' + ')}</span><small>${esc(e.desc)}</small></div>` : `<div><b>? ? ?</b><span>${wise ? `${esc(STORM_CARDS[e.needs[0]]?.name ?? '')} + ${e.needs.slice(1).map(() => '?').join(' + ')}` : 'Undiscovered'}</span></div>`).join('')}</div>
+      <div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
+    this.on('[data-s="back"]', back);
+  }
+
+  private sanctuary() {
+    this.mode = 'menu';
+    this.root.classList.add('hubmode');
+    music.setRegion('title');
+    clearInterval(this.hubTimer);
+    const rescued = progress.rescued;
+    this.show(`<div class="shub"><div class="shubtop"><h2>The Last Hearth</h2><span class="sembers">◆ ${progress.embers} Ash</span></div>
+      <div class="sscene"><canvas></canvas>${STATIONS.map((st) => { const on = !st.npc || st.npc === 'cass' || rescued.includes(st.npc as NpcId); return `<button type="button" class="shot ${on ? '' : 'off'}" data-st="${st.id}" style="left:${(st.x / SCENE_W) * 100}%;top:${(st.y / SCENE_H) * 100}%">${esc(on ? st.label : 'Rubble')}</button>`; }).join('')}</div>
+      <p class="k">${rescued.length < 5 ? `${5 - rescued.length} of the Hearth's people are still held somewhere in the storm. Look for a door marked with a chain.` : progress.trueEnding ? 'The storm is quiet. The Hearth burns on, in case.' : 'Everyone is home. Vell has something to tell you.'}</p>
+      <div class="row"><button type="button" class="btn ember" data-st="path">Set out</button><button type="button" class="btn" data-s="options">Options</button><button type="button" class="btn" data-s="quit">Back to title</button></div></div>`);
+    const cv = this.panel.querySelector<HTMLCanvasElement>('.sscene canvas')!;
+    let hover: string | null = null;
+    const draw = () => paintSanctuary(cv, (k) => this.sprites[k]?.canvas ?? null, rescued, performance.now() / 1000, hover);
+    draw();
+    this.hubTimer = window.setInterval(() => { if (!cv.isConnected) { clearInterval(this.hubTimer); return; } draw(); }, 80);
+    for (const b of this.panel.querySelectorAll<HTMLElement>('.shot')) { b.addEventListener('mouseenter', () => { hover = b.dataset.st!; }); b.addEventListener('mouseleave', () => { hover = null; }); }
+    this.on('[data-st]', (el) => { if (el.classList.contains('off')) { this.toast('Someone should be here. Find them in the storm.'); return; } clearInterval(this.hubTimer); this.station(el.dataset.st!); });
+    this.on('[data-s="options"]', () => { clearInterval(this.hubTimer); this.options(() => this.sanctuary()); });
+    this.on('[data-s="quit"]', () => { clearInterval(this.hubTimer); this.exit(); });
+  }
+
+  private talk(who: NpcId | 'cass') {
+    const ctx = { wins: progress.wins, rescued: progress.rescued.length, trueEnding: progress.trueEnding };
+    const l = nextLine(who, progress.talked[who] ?? 0, ctx);
+    progress.talked[who] = l.index; saveProgress();
+    if (who === 'vell' && progress.rescued.length >= 5 && progress.wins >= 1) addCodex('bell');
+    return l.text;
+  }
+  private portraits() {
+    for (const c of this.panel.querySelectorAll<HTMLCanvasElement>('canvas.sportrait')) { const src = this.sprites[c.dataset.sprite!]?.canvas; if (!src) continue; c.width = c.height = 64; const g = c.getContext('2d')!; g.imageSmoothingEnabled = false; g.drawImage(src, 0, 0, 64, 64); }
+  }
+
+  private station(id: string) {
+    const back = () => this.sanctuary();
+    const npcOf: Record<string, NpcId | 'cass'> = { hearth: 'cass', rook: 'rook', brannoch: 'brannoch', ysolde: 'ysolde', hesk: 'hesk', vell: 'vell' };
+    const who = npcOf[id];
+    const head = (title: string, sub: string) => who ? `<div class="sdialog"><canvas class="sportrait" data-sprite="npc_${who}"></canvas><div><h2>${esc(title)}</h2><p class="ssub">${esc(sub)}</p><p class="sline">\u201c${esc(this.talk(who))}\u201d</p></div></div>` : `<h2>${esc(title)}</h2>`;
+    const embers = `<p class="sembers">◆ ${progress.embers} Ash</p>`;
+    switch (id) {
+      case 'path': this.menu(); return;
+      case 'hearth':
+        this.show(`${head('Cass', 'Keeper of the Last Hearth')}${embers}<div class="row"><button type="button" class="btn ember" data-s="out">Set out</button><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits(); this.on('[data-s="out"]', () => this.menu()); this.on('[data-s="back"]', back); return;
+      case 'brannoch': {
+        const list = UPGRADES.filter((u) => !u.npc || progress.rescued.includes(u.npc));
+        const locked = UPGRADES.filter((u) => u.npc && !progress.rescued.includes(u.npc)).length;
+        this.show(`${head(NPCS.brannoch.name + ' ' + NPCS.brannoch.title, 'The Tempering: permanent upgrades, for Ash')}${embers}
+          <div class="supgrades">${list.map((u) => { const n = lvl(u.id), max = n >= u.costs.length, c = upgradeCost(u); return `<button type="button" class="btn" data-up="${u.id}" ${max || progress.embers < c ? 'disabled' : ''}><i>${u.icon}</i><b>${esc(u.name)}</b><small>${esc(u.desc(Math.max(1, n + (max ? 0 : 1))))}</small><span>${'◆'.repeat(n)}${'◇'.repeat(u.costs.length - n)} ${max ? 'Mastered' : `· ${c} Ash`}</span></button>`; }).join('')}</div>
+          ${locked ? `<p class="k">${locked} more upgrades will come when the rest of the Hearth's people are home.</p>` : ''}<div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits();
+        this.on('[data-up]', (el) => { if (buyUpgrade(el.dataset.up!)) { play('heal'); this.station('brannoch'); } });
+        this.on('[data-s="back"]', back); return;
+      }
+      case 'rook':
+        this.show(`${head(NPCS.rook.name + ' ' + NPCS.rook.title, 'Bargains: make the storm crueller, carry more Ash home')}
+          <div class="spacts">${Object.entries(PACTS).map(([k, pc]) => `<label class="${progress.pacts.includes(k) ? 'on' : ''}"><input type="checkbox" data-pact="${k}" ${progress.pacts.includes(k) ? 'checked' : ''}><b>${esc(pc.name)}</b><span>${esc(pc.desc)}</span><i>+${Math.round(pc.bonus * 100)}% Ash</i></label>`).join('')}</div>
+          <p class="k">Bargains struck: <b>+${Math.round(pactBonus() * 100)}% Ash</b> from every run (not daily or weekly storms).</p><div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits();
+        for (const c of this.panel.querySelectorAll<HTMLInputElement>('[data-pact]')) c.addEventListener('change', () => { const k = c.dataset.pact!; progress.pacts = c.checked ? [...new Set([...progress.pacts, k])] : progress.pacts.filter((x) => x !== k); saveProgress(); this.station('rook'); });
+        this.on('[data-s="back"]', back); return;
+      case 'ysolde': {
+        const pages = Object.entries(CODEX);
+        this.show(`${head(NPCS.ysolde.name + ' ' + NPCS.ysolde.title, `The Codex: ${progress.codex.length} of ${pages.length} pages`)}
+          <div class="scodex">${pages.map(([k, c]) => progress.codex.includes(k) ? `<details><summary>${esc(c.title)}</summary><p>${esc(c.text)}</p></details>` : `<div class="lockedp"><b>A missing page</b><span>${esc(c.how)}</span></div>`).join('')}</div>
+          <div class="row"><button type="button" class="btn" data-s="beasts">Bestiary</button><button type="button" class="btn" data-s="evo">Spell evolutions</button><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits();
+        this.on('[data-s="beasts"]', () => this.bestiary(() => this.station('ysolde')));
+        this.on('[data-s="evo"]', () => this.evolutionsPage(() => this.station('ysolde')));
+        this.on('[data-s="back"]', back); return;
+      }
+      case 'hesk': {
+        const wk = weeklyMutators(), key = weekKey();
+        this.show(`${head(NPCS.hesk.name + ' ' + NPCS.hesk.title, `This week's contraption (${key})`)}
+          <div class="smuts">${wk.mutators.map((m) => `<div><b>${esc(MUTATORS[m].name)}</b><span>${esc(MUTATORS[m].desc)}</span></div>`).join('')}</div>
+          <p class="k">Everyone plays the same storm this week, on Ashen. ${progress.weeklyBest[key] ? `Your best: <b>${progress.weeklyBest[key].toLocaleString()}</b>` : 'No attempt yet.'}</p>
+          <div class="row"><button type="button" class="btn ember" data-s="weekly">Take on the weekly storm</button><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits();
+        this.on('[data-s="weekly"]', () => { this.weekly = true; this.daily = false; this.rush = false; this.startRun(); });
+        this.on('[data-s="back"]', back); return;
+      }
+      case 'vell': {
+        const ready = progress.rescued.length >= 5 && progress.wins >= 1;
+        this.show(`${head(NPCS.vell.name + ' ' + NPCS.vell.title, 'The Silent Bell')}
+          ${ready ? `<label class="sbell"><input type="checkbox" id="sBell" ${this.bellNext ? 'checked' : ''}> Carry the Silent Bell on your next run. When the Hollow King falls, ring it.</label>` : `<p class="k">${progress.rescued.length < 5 ? 'Vell will say more when everyone is home.' : 'Defeat the Hollow King once, and come back.'}</p>`}
+          <div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits();
+        this.panel.querySelector<HTMLInputElement>('#sBell')?.addEventListener('change', (e) => { this.bellNext = (e.target as HTMLInputElement).checked; });
+        this.on('[data-s="back"]', back); return;
+      }
+      case 'board': {
+        const h = progress.history, wins = h.filter((r) => r.won).length;
+        this.show(`<h2>The Notice Board</h2><p class="k">Runs ${h.length} · Wins ${progress.wins} · Ash earned ${progress.lifetimeEmbers} · People home ${progress.rescued.length}/5 · Codex ${progress.codex.length}/${Object.keys(CODEX).length}${progress.trueEnding ? ' · <b>The ending is written</b>' : ''}</p>
+          <table class="shist"><tr><th></th><th>Wizard</th><th>Storm</th><th>Reached</th><th>Level</th><th>Score</th><th>Time</th></tr>${h.slice(0, 20).map((r) => `<tr class="${r.won ? 'won' : ''}"><td>${r.true ? '✶' : r.won ? '★' : '✝'}</td><td>${esc(CLASSES[r.cls as ClassId]?.name ?? r.cls)}</td><td>${r.weekly ? 'Weekly' : esc(DIFFICULTY[r.diff as Difficulty]?.name ?? r.diff)}</td><td>${esc(ACTS[r.act]?.name ?? '')}</td><td>${r.level}</td><td>${r.score.toLocaleString()}</td><td>${Math.floor(r.secs / 60)}:${String(r.secs % 60).padStart(2, '0')}</td></tr>`).join('')}</table>
+          ${h.length ? '' : '<p>No runs yet. The board waits.</p>'}<p class="k">Win rate ${h.length ? Math.round((wins / h.length) * 100) : 0}%.</p>
+          <div class="row"><button type="button" class="btn" data-s="ach">Achievements</button><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.on('[data-s="ach"]', () => this.achievements());
+        this.on('[data-s="back"]', back); return;
+      }
+    }
+  }
+
+  /** Freeing a captive: they speak, and go home to the Hearth. */
+  private rescueScene(who: NpcId, then: () => void) {
+    const n = NPCS[who];
+    let i = 0;
+    const step = () => {
+      if (i >= n.rescue.length) {
+        if (!progress.rescued.includes(who)) progress.rescued.push(who);
+        saveProgress();
+        const pages = addCodex(`n_${who}`, 'grimoire');
+        this.show(`<div class="sact"><small>Rescued</small><h2>${esc(n.name)}</h2><p>${esc(n.name)} will be waiting at the Last Hearth. ${esc(n.blurb)}</p>${pages.length ? `<p class="k">New codex pages: ${pages.map((p) => esc(CODEX[p].title)).join(', ')}</p>` : ''}<div class="row"><button type="button" class="btn ember" data-s="on">Onward</button></div></div>`);
+        this.on('[data-s="on"]', then);
+        play('heal');
+        return;
+      }
+      this.show(`<div class="sdialog"><canvas class="sportrait" data-sprite="npc_${who}"></canvas><div><h2>${esc(n.name)} <small>${esc(n.title)}</small></h2><p class="sline">\u201c${esc(n.rescue[i])}\u201d</p></div></div><div class="row"><button type="button" class="btn ember" data-s="next">${i < n.rescue.length - 1 ? 'Go on' : 'Free them'}</button></div>`);
+      this.portraits();
+      this.on('[data-s="next"]', () => { i++; step(); });
+    };
+    this.mode = 'between';
+    step();
+  }
+
+  /** The King falls: the first ending, or the true one. */
+  private ending(then: () => void) {
+    const w = this.w;
+    const trueEnd = w.loop >= 1 && w.bell;
+    const e = trueEnd ? ENDINGS.true : ENDINGS.king;
+    const key = trueEnd ? 'true' : 'king';
+    const first = !progress.endingsSeen.includes(key);
+    if (first) { progress.endingsSeen.push(key); saveProgress(); }
+    this.show(`<div class="sending ${trueEnd ? 'true' : ''}"><small>${trueEnd ? 'The true ending' : 'An ending'}</small><h2>${esc(e.title)}</h2><p>${esc(e.text)}</p>${trueEnd ? '<p class="scredits">Ashen Grimoire · Cinderstorm<br>Made by Dean, with Claude<br>Thank you for playing.</p>' : ''}<div class="row"><button type="button" class="btn ember" data-s="on">${first ? 'Continue' : 'Onward'}</button></div></div>`);
+    this.on('[data-s="on"]', then);
+  }
+
+  private bestiary(back: () => void = () => this.menu()) {
     const icon = (k: string) => (this.sprites[SPRITE_OF[k] ?? k] ?? this.sprites.ghoul).canvas.toDataURL();
     this.show(`<h2>Bestiary</h2><p>Everything you have faced in the storm.</p>
       <div class="sbeasts">${Object.entries(FOE_INFO).map(([k, [name, desc]]) => this.seen.includes(k) ? `<div><img alt="" src="${icon(k)}"><b>${esc(name)}</b><span>${esc(desc)}</span></div>` : '<div class="unseen"><i>?</i><b>Unknown</b><span>Not yet met.</span></div>').join('')}</div>
       <div class="row"><button type="button" class="btn" data-s="back">Back</button></div>`);
-    this.on('[data-s="back"]', () => this.menu());
+    this.on('[data-s="back"]', back);
   }
 
   private achievements() {
@@ -955,11 +1185,18 @@ class Cinderstorm {
   /** What happens after a room is won. */
   private afterRoom() {
     const w = this.w;
+    if (w.rescue) { const who = w.rescue as NpcId; w.rescue = null; this.rescueScene(who, () => this.afterRoom()); return; }
+    if (w.truePath && w.loop === 0) {
+      // the Bell rings without a sound, and the floor beneath the throne gives way
+      this.show(`<div class="sact"><small>Beneath the throne</small><h2>The Silent Bell</h2><p>You ring Vell's bell. Nothing is heard. The Choir's last echo forgets its words, and the floor beneath the throne opens onto a page that is burning and never burns away.</p><div class="row"><button type="button" class="btn ember" data-s="go">Descend</button></div></div>`);
+      this.on('[data-s="go"]', () => { w.loop = 1; w.truePath = false; w.player.hp = Math.min(w.player.maxHp, w.player.hp + 2); enterRoom(w, ROOMS_PER_ACT + 1, 'boss'); this.enter(); });
+      return;
+    }
     switch (w.kind) {
       case 'boss':
         this.pickRelic(3, `${bossOf(w).name} falls`, 'Take one gift from its hoard. You also mend two hearts.', () => {
           w.player.hp = Math.min(w.player.maxHp, w.player.hp + 2);
-          if (!nextAct(w)) { this.mode = 'won'; this.results(); return; }
+          if (!nextAct(w)) { this.mode = 'won'; this.ending(() => this.results()); return; }
           this.actCard(() => this.enter());
         });
         break;
@@ -975,7 +1212,8 @@ class Cinderstorm {
   private reward(then: () => void) {
     const choices = rewardChoices(this.w, this.owned, BASES, MODS);
     this.show(`<h2>Room cleared</h2><p>Choose a card for your grimoire.</p><div class="scards">${choices.map((c) => cardHtml(c, `data-pick="${c}"`)).join('')}</div>
-      <div class="row"><button type="button" class="btn small" data-s="skip">Skip (+15 cinders)</button></div>`);
+      <div class="row">${this.rerolls > 0 ? `<button type="button" class="btn small" data-s="reroll">Reroll (${this.rerolls} left)</button>` : ''}<button type="button" class="btn small" data-s="skip">Skip (+15 cinders)</button></div>`);
+    this.on('[data-s="reroll"]', () => { this.rerolls--; play('click'); this.reward(then); });
     this.on('[data-pick]', (el) => { this.owned.push(el.dataset.pick!); play('click'); this.forge(then, 'Onward'); });
     this.on('[data-s="skip"]', () => { this.w.player.cinders += 15; this.forge(then, 'Onward'); });
   }
@@ -1001,6 +1239,7 @@ class Cinderstorm {
   private go(kind: RoomKind) {
     const w = this.w;
     enterRoom(w, w.room + 1, kind);
+    if (kind === 'rescue') { this.enter(); return; }
     if (kind === 'treasure') this.pickRelic(3, 'A hoard', 'Something glints among the bones. Take one.', () => this.doors());
     else if (kind === 'shrine') this.shrine();
     else if (kind === 'shop') this.shop();
@@ -1011,6 +1250,17 @@ class Cinderstorm {
   /** Strange Lights: one of six encounters. */
   private event() {
     const w = this.w, p = w.player;
+    if ((progress.talked.wanderer ?? 0) < 5 && Math.abs(Math.sin(w.act * 7 + w.room * 3 + progress.history.length)) < 0.45) {
+      const ctx = { wins: progress.wins, rescued: progress.rescued.length, trueEnding: progress.trueEnding };
+      const l = nextLine('wanderer', progress.talked.wanderer ?? 0, ctx);
+      progress.talked.wanderer = l.index; saveProgress();
+      addCodex('wanderer');
+      p.cinders += 20;
+      this.show(`<div class="sdialog"><canvas class="sportrait" data-sprite="npc_wanderer"></canvas><div><h2>The Pale Wanderer</h2><p>${esc(l.text)}</p><p class="k">He leaves twenty cinders on a blank page as he goes.</p></div></div><div class="row"><button type="button" class="btn ember" data-s="on">Onward</button></div>`);
+      this.portraits();
+      this.on('[data-s="on"]', () => this.doors());
+      return;
+    }
     const which = Math.floor(Math.abs(Math.sin(w.time * 7.3 + w.room * 13 + w.act * 31 + p.cinders)) * 6);
     const done = (msg: string) => { this.show(`<h2>${esc(msg)}</h2><div class="row"><button type="button" class="btn ember" data-s="on">Onward</button></div>`); this.on('[data-s="on"]', () => this.doors()); };
     const ask = (title: string, text: string, opts: { label: string; ok?: boolean; act: () => void }[]) => {
@@ -1163,8 +1413,16 @@ class Cinderstorm {
     this.ach.push(...this.newAch);
     saveAch(this.ach);
     if (this.daily) { this.best.daily = { ...(this.best.daily ?? {}) }; this.best.daily[today()] = Math.max(this.best.daily[today()] ?? 0, Math.floor(w.score)); }
-    const ash = stormAsh(w) + this.newAch.length * 5;
-    if (ash > 0) { meta.ash += ash; saveMeta(); }
+    const ash = Math.round((stormAsh(w) + this.newAch.length * 5) * (1 + pactBonus()));
+    if (ash > 0) { progress.embers += ash; progress.lifetimeEmbers += ash; meta.ash += Math.round(ash / 2); saveMeta(); }
+    if (w.player.dead) addCodex('kindled');
+    if (w.act >= 2) addCodex('storm');
+    const trueEnd = w.won && w.loop >= 1 && w.bell;
+    if (w.won) progress.wins++;
+    if (trueEnd) { progress.trueEnding = true; addCodex('ending'); }
+    if (this.weekly) { const k = weekKey(); progress.weeklyBest[k] = Math.max(progress.weeklyBest[k] ?? 0, Math.floor(w.score)); }
+    recordRun({ at: Date.now(), cls: w.player.cls, diff: w.diff, won: w.won, act: w.act, score: Math.floor(w.score), level: w.player.level, secs: Math.round(w.time), kills: w.stats.kills, true: trueEnd, weekly: this.weekly });
+    this.bellNext = false;
     if (w.score > (this.best.score[w.diff] ?? 0)) this.best.score[w.diff] = Math.floor(w.score);
     if (w.loop > this.best.abyss) this.best.abyss = w.loop;
     saveBest(this.best);
@@ -1183,10 +1441,10 @@ class Cinderstorm {
       <p>${won ? 'The Reach goes quiet. Your grimoire is still warm.' : `${abandoned ? 'You left' : 'You fell'} in ${esc(w.kind === 'boss' ? `the lair of ${bossOf(w).name}` : act.name)}${w.loop ? `, ${w.loop} loop${w.loop > 1 ? 's' : ''} into the Abyss` : ''}.`}</p>
       <p class="sbig">${Math.floor(w.score).toLocaleString()}${w.score > prevBest ? ' <small>new best!</small>' : ''}</p>
       ${this.newAch.length ? `<div class="sach">${this.newAch.map((id) => { const a = ACH.find((x) => x.id === id)!; return `<div class="got"><b>★ ${esc(a.name)}</b><span>${esc(a.desc)} (+5 Ash)</span></div>`; }).join('')}</div>` : ''}
-      <p class="k">${this.daily ? 'Daily storm · ' : ''}${CLASSES[w.player.cls].name} · ${DIFFICULTY[w.diff].name} · Rooms ${st.rooms} · Bosses ${st.bosses} · Foes felled ${st.kills} · Grazes ${st.grazes} · Level ${w.player.level} · Best combo ${w.bestCombo} · Hits taken ${st.hitsTaken}${ash ? ` · <b>+${ash} Ash</b> carried home` : ''}</p>
-      <div class="row"><button type="button" class="btn ember" data-s="again">Run again</button><button type="button" class="btn" data-s="menu">Change difficulty</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
+      <p class="k">${this.daily ? 'Daily storm · ' : ''}${CLASSES[w.player.cls].name} · ${DIFFICULTY[w.diff].name} · Rooms ${st.rooms} · Bosses ${st.bosses} · Foes felled ${st.kills} · Grazes ${st.grazes} · Level ${w.player.level} · Best combo ${w.bestCombo} · Hits taken ${st.hitsTaken}${ash ? ` · <b>+${ash} Ash</b> carried to the Hearth` : ''}</p>
+      <div class="row"><button type="button" class="btn ember" data-s="home">Return to the Hearth</button><button type="button" class="btn" data-s="again">Run again</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
     this.on('[data-s="again"]', () => this.startRun());
-    this.on('[data-s="menu"]', () => this.menu());
+    this.on('[data-s="home"]', () => this.sanctuary());
     this.on('[data-s="quit"]', () => this.exit());
   }
 

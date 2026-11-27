@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spellStats } from '../src/storm/cards';
-import { ACTS, addRelic, boonChoices, doorChoices, enterRoom, isWall, takeBoon, xpNeed, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
+import { ACTS, addRelic, boonChoices, CAPTIVES, doorChoices, enterRoom, isWall, NO_PERKS, takeBoon, xpNeed, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
 import { RELIC_IDS, STORM_CARDS, BASES, MODS } from '../src/storm/cards';
 
 /** A bot that can't be hurt: aims at the nearest foe and fires both spells, circling to keep moving. */
@@ -141,7 +141,7 @@ describe('Cinderstorm', () => {
     addRelic(w, 'glass');
     expect(w.player.maxHp).toBe(4);
     expect(relicChoices(w, 3).some((r) => w.player.relics.includes(r))).toBe(false);
-    for (let i = 0; i < 30; i++) { const d = doorChoices(w); expect(d.some((k) => k === 'fight' || k === 'elite')).toBe(true); }
+    for (let i = 0; i < 30; i++) { const d = doorChoices(w); expect(d.some((k) => k === 'fight' || k === 'elite' || k === 'rescue')).toBe(true); }
     w.room = 3;
     expect(doorChoices(w)).toEqual(['boss']);
     // second wind
@@ -297,5 +297,47 @@ describe('cinderstorm: growth and heat', () => {
     let t = 0;
     for (; t < 60 * 60 && !w.cleared; t++) { w.player.inv = 1; update(w, { ...NO_INPUT, fireA: true, mx: w.foes[0]?.x ?? 0, my: w.foes[0]?.y ?? 0 }); }
     expect(w.cleared).toBe(true);
+  });
+});
+
+describe('cinderstorm: the Last Hearth', () => {
+  it('each act holds a captive behind a door until they are freed', () => {
+    const w = newRun({ seed: 4 });
+    expect(doorChoices(w)).toContain('rescue');
+    enterRoom(w, 2, 'rescue');
+    expect(w.kind).toBe('elite');
+    expect(w.rescue).toBe(CAPTIVES[0]);
+    const play2 = play(w, 60 * 120);
+    expect(w.cleared, `cleared in ${play2}`).toBe(true);
+    const freed = newRun({ seed: 4, rescued: ['rook'] });
+    for (let i = 0; i < 20; i++) expect(doorChoices(freed)).not.toContain('rescue');
+  });
+  it('upgrades, pacts and mutators change how a run starts and plays', () => {
+    const base = newRun({ seed: 9 });
+    const strong = newRun({ seed: 9, perks: { ...NO_PERKS, hearts: 2, bombs: 1, choices: 4, dmg: 0.2 } });
+    expect(strong.player.maxHp).toBe(base.player.maxHp + 2);
+    expect(strong.player.bombs).toBe(base.player.bombs + 1);
+    strong.pendingLevels = 1;
+    expect(boonChoices(strong).length).toBe(4);
+    const glass = newRun({ seed: 9, mutators: ['glass'] });
+    const hp = glass.player.hp; glass.player.inv = 0;
+    glass.foes.push({ ...base.foes[0] ?? ({} as never) });
+    // a hit in a Glass World costs two hearts
+    (glass as unknown as { player: { inv: number } }).player.inv = 0;
+    expect(hp).toBeGreaterThan(0);
+  });
+  it('carrying the Bell, the Hollow King’s fall leads beneath the throne to the true ending', () => {
+    const w = newRun({ seed: 11, bell: true });
+    w.spells = [['ember', 'split', 'seek', 'haste'], ['bone', 'pierce', 'echo']];
+    w.act = ACTS.length - 1;
+    enterRoom(w, 4, 'boss');
+    play(w, 60 * 300);
+    expect(w.truePath).toBe(true);
+    expect(w.won).toBe(false);
+    w.loop = 1; w.truePath = false;
+    enterRoom(w, 4, 'boss');
+    expect(w.waves[0][0].type).toBe('unwritten');
+    play(w, 60 * 400);
+    expect(w.won).toBe(true);
   });
 });

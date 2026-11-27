@@ -554,3 +554,59 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .sboons .btn i { font-style: normal; font-size: 34px; color: #7affc8; text-shadow: 0 0 10px #2a9a7a; }
 .storm .sboons .btn b { font-size: 1.2em; color: #ffd890; }
 .storm .sboons .btn span { color: #7affc8; letter-spacing: 2px; }
+
+/* ================= Cinderstorm: the Last Hearth and its people ================= */
+.storm { font-size: calc(16px * var(--storm-text, 1)); }
+.storm .shub { display: grid; gap: 8px; }
+.storm .shubtop { display: flex; justify-content: space-between; align-items: baseline; }
+.storm .sembers { color: #ffc870; font: 22px VT323, monospace; letter-spacing: 1px; text-shadow: 0 0 8px #ff8a2a; margin: 0; }
+.storm .sscene { position: relative; width: 100%; aspect-ratio: 16 / 9; border: 1px solid rgba(232, 200, 140, 0.35); box-shadow: 0 0 40px rgba(255, 120, 40, 0.18) inset; overflow: hidden; }
+.storm .sscene canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+.storm .shot { position: absolute; transform: translate(-50%, 6px); padding: 2px 8px; font: 16px VT323, monospace; color: #ffe8c0; background: rgba(12, 6, 8, 0.72); border: 1px solid rgba(255, 190, 110, 0.45); cursor: pointer; white-space: nowrap; transition: transform 0.12s, background 0.12s; }
+.storm .shot:hover, .storm .shot:focus-visible { background: rgba(120, 50, 18, 0.9); transform: translate(-50%, 4px) scale(1.06); }
+.storm .shot.off { color: #8a7a6a; border-color: rgba(140, 120, 100, 0.3); font-style: italic; }
+.storm .sdialog { display: grid; grid-template-columns: 96px 1fr; gap: 14px; align-items: start; }
+.storm .sportrait { width: 96px; height: 96px; image-rendering: pixelated; background: radial-gradient(circle at 50% 60%, rgba(255, 140, 60, 0.35), rgba(10, 6, 8, 0.8)); border: 1px solid rgba(232, 200, 140, 0.4); }
+.storm .sdialog h2 { margin: 0 0 2px; } .storm .sdialog h2 small { font-size: 0.6em; opacity: 0.7; }
+.storm .ssub { margin: 0 0 6px; opacity: 0.75; font-style: italic; }
+.storm .sline { font-size: 1.08em; line-height: 1.45; color: #fff3d8; border-left: 2px solid #c8903a; padding-left: 10px; }
+.storm .supgrades { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin: 10px 0; }
+.storm .supgrades .btn { display: grid; gap: 3px; text-align: left; padding: 10px; }
+.storm .supgrades .btn i { font-style: normal; font-size: 22px; color: #ffc870; }
+.storm .supgrades .btn span { color: #ffc870; font-size: 0.85em; }
+.storm .spacts { display: grid; gap: 6px; margin: 10px 0; }
+.storm .spacts label { display: grid; grid-template-columns: auto 160px 1fr auto; gap: 10px; align-items: center; padding: 6px 10px; border: 1px solid rgba(232, 200, 140, 0.2); cursor: pointer; }
+.storm .spacts label.on { border-color: #c8ff7a; background: rgba(120, 160, 60, 0.12); }
+.storm .spacts i { color: #c8ff7a; font-style: normal; }
+.storm .scodex { display: grid; gap: 4px; max-height: 50vh; overflow: auto; margin: 10px 0; }
+.storm .scodex details { padding: 6px 10px; border: 1px solid rgba(232, 200, 140, 0.25); background: rgba(255, 240, 210, 0.04); }
+.storm .scodex summary { cursor: pointer; color: #ffd890; }
+.storm .scodex .lockedp { padding: 6px 10px; border: 1px dashed rgba(232, 200, 140, 0.18); opacity: 0.55; display: flex; justify-content: space-between; gap: 10px; }
+.storm .smuts, .storm .sevos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; margin: 10px 0; }
+.storm .smuts > div, .storm .sevos > div { display: grid; gap: 3px; padding: 10px; border: 1px solid rgba(111, 208, 255, 0.35); background: rgba(40, 80, 110, 0.12); }
+.storm .sevos > div { border-color: rgba(232, 200, 140, 0.2); background: none; opacity: 0.6; }
+.storm .sevos > div.got { opacity: 1; border-color: #ffd06a; background: rgba(255, 180, 60, 0.08); }
+.storm .sevos b, .storm .smuts b { color: #ffd890; }
+.storm .sbell { display: block; padding: 10px; border: 1px solid #c8a040; margin: 10px 0; cursor: pointer; }
+.storm .shist { width: 100%; border-collapse: collapse; font-size: 0.9em; margin: 8px 0; }
+.storm .shist th, .storm .shist td { text-align: left; padding: 3px 8px; border-bottom: 1px solid rgba(232, 200, 140, 0.12); }
+.storm .shist tr.won td { color: #ffd890; }
+.storm .sending { text-align: center; max-width: 640px; margin: 8vh auto 0; }
+.storm .sending p { font-size: 1.1em; line-height: 1.6; }
+.storm .sending.true h2 { color: #fff3c0; text-shadow: 0 0 20px #ffb04a; }
+.storm .scredits { opacity: 0.7; font-style: italic; margin-top: 24px; }
+.storm .sopts { display: grid; gap: 8px; margin: 10px 0; }
+.storm .sopts label { display: flex; gap: 10px; align-items: center; }
+.storm .sopts input[type=range] { flex: 0 0 200px; }
+.storm .skeysmap { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; }
+.storm .skeysmap .btn { display: flex; justify-content: space-between; }
+.storm .sslot.evo { box-shadow: 0 0 10px #ffb04a; border-color: #ffd06a; }
+/* someone speaking during play */
+.storm .ssay { position: absolute; left: 50%; bottom: 104px; transform: translate(-50%, 20px); opacity: 0; display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: center; width: min(620px, 80vw); padding: 8px 12px; background: rgba(10, 6, 8, 0.86); border: 1px solid rgba(232, 200, 140, 0.45); transition: opacity 0.3s, transform 0.3s; pointer-events: none; z-index: 5; }
+.storm .ssay.on { opacity: 1; transform: translate(-50%, 0); }
+.storm .ssay canvas { width: 56px; height: 56px; image-rendering: pixelated; }
+.storm .ssay b { color: #ffd890; } .storm .ssay p { margin: 2px 0 0; font-style: italic; }
+.storm .stoast { position: absolute; right: 16px; top: 64px; padding: 8px 14px; background: rgba(10, 6, 8, 0.9); border: 1px solid #c8903a; color: #ffe8c0; animation: stoast 3.2s ease forwards; z-index: 6; }
+@keyframes stoast { 0% { opacity: 0; transform: translateX(20px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+.storm.hubmode .shud, .storm.hubmode .srelics, .storm.hubmode .sbars, .storm.hubmode .sboss, .storm.hubmode .stwist { display: none !important; }
+.storm.hubmode .spanel { background: radial-gradient(ellipse at 50% 40%, #1e1014, #070407 75%); }

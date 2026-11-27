@@ -582,6 +582,34 @@ export const CREATURES: Record<string, Paint> = {
     p.line(15, 7, 12, 3, R('#c0a0ff')[3], 0.5); p.line(17, 7, 20, 3, R('#c0a0ff')[3], 0.5);
   },
   moth: (p, f) => CREATURES.voidmoth(p, f),
+  // ---- the people of the Last Hearth
+  npc_cass: (p, f) => robed(p, f, { robe: '#5a4a3a', hood: '#8a3a2a', skin: '#c8a888', head: 'hood', face: '#3a2a20', eyes: '#ffd06a', trim: '#c89a4a', staff: { wood: '#3a3a40', top: 'none', glow: '#ff8a3a' },
+    extra: (q, g) => { q.line(24, 5, 26, 2, R('#3a3a40')[2], 1); q.dot(26, 1.5 - g * 0.5, R('#ff8a3a')[4], 1, true); q.poly([10, 13, 22, 13, 21, 17, 11, 17], R('#a04a2a'), { lift: 0.1 }); } }),
+  npc_rook: (p, f) => robed(p, f, { robe: '#3a4a2a', hood: '#1e2a18', skin: '#9aa070', head: 'hat', eyes: '#c8ff7a', trim: '#8a5a2a', staff: { wood: '#4a3018', top: 'thorn', glow: '#c8ff7a' },
+    extra: (q, g) => { const b = g ? 0.5 : 0; q.cap(19.5, 10.5 + b, 22.5, 12 + b, 1, 0.5, R('#9aa070')); q.blob(9, 6 + b, 1.8, 1.4, R('#1a1a20')); q.dot(9.8, 5.6 + b, R('#ffd06a')[4], 0.6, true); } }),
+  npc_brannoch: (p, f) => {
+    const s2 = f ? 0.5 : 0, sk = R('#b08060'), ap = R('#4a3a2a');
+    p.cap(13, 22, 12, 30, 2.4, 2.2, R('#3a3030')); p.cap(19, 22, 20, 30, 2.4, 2.2, R('#3a3030'));
+    p.blob(16, 18 + s2, 7, 7, sk);
+    p.poly([10.5, 14 + s2, 21.5, 14 + s2, 21, 27, 11, 27], ap);
+    p.line(11, 15 + s2, 21, 15 + s2, R('#8a6a3a')[3], 0.6);
+    p.blob(16.5, 8.5 + s2, 4.2, 4.2, sk);
+    p.blob(16.5, 12 + s2, 4.4, 2.6, R('#8a4a2a'), { lift: -0.05 });
+    p.eye(15.5, 8 + s2, '#ffd06a'); p.eye(18.5, 8 + s2, '#ffd06a');
+    p.cap(10, 15 + s2, 7, 22, 2.2, 2, sk);
+    p.cap(22, 15 + s2, 25, 20 + (f ? -2 : 0), 2.2, 2, sk);
+    p.line(25, 20 + (f ? -2 : 0), 27, 12 + (f ? -2 : 0), R('#5a3a20')[2], 1);
+    p.poly([25, 9 + (f ? -2 : 0), 30, 9 + (f ? -2 : 0), 30, 13 + (f ? -2 : 0), 25, 13 + (f ? -2 : 0)], R('#5a5a64'), { lift: 0.1 });
+  },
+  npc_ysolde: (p, f) => robed(p, f, { robe: '#2a3a5a', hood: '#bfe0f0', skin: '#e0d0c0', head: 'cap', eyes: '#6fd0ff', trim: '#e0c070', staff: { wood: '#5a3a20', top: 'book', glow: '#e2cfa2' },
+    extra: (q, g) => { const b = g ? 0.5 : 0; q.line(15, 9 + b, 20, 9 + b, R('#c8c8d0')[3], 0.5); q.blob(15.5, 9 + b, 1, 1, R('#c8c8d0'), { edge: false, lift: 0.3 }); q.blob(19, 9 + b, 1, 1, R('#c8c8d0'), { edge: false, lift: 0.3 }); } }),
+  npc_hesk: (p, f) => robed(p, f, { robe: '#6a4a2a', hood: '#8a6a3a', skin: '#c8a080', head: 'cap', eyes: '#6fd0ff', eyeS: 1.4, trim: '#d9a845', hem: 30, staff: { wood: '#5a5a64', top: 'none', glow: '#6fd0ff' },
+    extra: (q, g) => { const b = g ? 0.5 : 0; q.line(14.5, 7.5 + b, 21, 7.5 + b, R('#3a2a1a')[1], 0.8); q.blob(17, 8.3 + b, 1.6, 1.6, R('#d9a845'), { lift: 0.2 }); q.blob(20, 8.3 + b, 1.6, 1.6, R('#d9a845'), { lift: 0.2 }); q.eye(17, 8.3 + b, '#6fd0ff', 1.1); q.eye(20, 8.3 + b, '#6fd0ff', 1.1);
+      q.line(24, 6, 24, 3, R('#9a9aa8')[3], 1); q.poly([22, 1, 26, 1, 26, 3, 22, 3], R('#9a9aa8')); for (let i = 0; i < 6; i++) q.dot(10 + Math.cos(i + g) * 2, 22 + Math.sin(i + g) * 2, R('#d9a845')[3], 0.7); } }),
+  npc_vell: (p, f) => robed(p, f, { robe: '#e8e0d8', hood: '#7a1a2a', skin: '#e0c8b8', head: 'veil', face: '#2a1418', eyes: '#ffd060', trim: '#a8202a', staff: { wood: '#c8a040', top: 'none', glow: '#ffd060' },
+    extra: (q, g) => { q.poly([22, 6 - g * 0.5, 26, 6 - g * 0.5, 27, 11 - g * 0.5, 21, 11 - g * 0.5, 22.5, 7.5 - g * 0.5], R('#c8a040'), { lift: 0.15 }); q.dot(23.6, 4.8 - g * 0.5, R('#c8a040')[1], 1); } }),
+  npc_wanderer: (p, f) => robed(p, f, { robe: '#c8c8d0', hood: '#e8e8f0', head: 'hood', face: '#0a0a10', eyes: '#ffffff', staff: { wood: '#9a9aa8', top: 'book', glow: '#f8f8ff' },
+    extra: (q, g) => { for (let i = 0; i < 3; i++) q.poly([6 + i * 2, 12 + i * 5 - g, 9 + i * 2, 12 + i * 5 - g, 9 + i * 2, 15 + i * 5 - g, 6 + i * 2, 15 + i * 5 - g], R('#f0ece0'), { lift: 0.2 }); } }),
   thief: (p, f) => {
     const s = sw(f), cl = R('#3a4a2a'), sk = R('#8aa05a'), b = f ? 0.5 : 0;
     p.blob(10, 16 + b, 6, 6.5, R('#8a6a3a'));
