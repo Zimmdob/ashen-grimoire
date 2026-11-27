@@ -12,7 +12,7 @@ import type { LevelSnap } from '../sim/types';
 import { BASES, CURSE_IDS, EVOLUTIONS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STORM_CARDS } from './cards';
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
-  ROOMS_PER_ACT, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
+  ROOMS_PER_ACT, spawnAt, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
   TWISTS, BOONS, boonChoices, takeBoon, xpNeed, comboMul,
 } from './sim';
 import { T_LAVA } from '../sim/constants';
@@ -27,7 +27,7 @@ const LOOK: { dark: number; tint: number; weather: 'leaves' | 'dust' | 'snow' | 
   { dark: 0.4, tint: 0x140804, weather: 'embers', back: 0x120604 },
 ];
 /** Sprites for things the main game draws under another name. */
-const SPRITE_OF: Partial<Record<string, string>> = { brazier: 'effigy', f_imp: 'imp', f_owl: 'voidmoth', f_hound: 'hound' };
+const SPRITE_OF: Partial<Record<string, string>> = { brazier: 'effigy', dummy: 'effigy', f_imp: 'imp', f_owl: 'voidmoth', f_hound: 'hound' };
 /** Names and a line each, for the Bestiary. */
 const FOE_INFO: Record<string, [string, string]> = {
   boar: ['Tusked Boar', 'Winds up, then charges in a straight line.'], thornling: ['Thornling', 'Rings of thorns on the beat.'], xbow: ['Poacher', 'Aimed three-bolt fans.'], wolf: ['Grey Wolf', 'Fast, and comes in packs.'], hag: ['Briar Witch', 'A slow two-armed spiral.'],
@@ -194,6 +194,8 @@ class Cinderstorm {
   private twistText = '';
   private surgeQueued = false;
   private rebind: ((k: string) => void) | null = null;
+  /** The Kindling (the prologue): which lesson, and its bookkeeping. */
+  private tut: { stage: number; t: number; n: number; marker: { x: number; y: number } | null; blinks: number; prevBlink: number; prevBombs: number } | null = null;
   private evoSeen = new Set<string>();
   private rush = false;
   private weekly = false;
@@ -208,7 +210,7 @@ class Cinderstorm {
 
   async boot() {
     this.root.className = 'storm';
-    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="sbars"><div class="sxp"><i></i><b></b></div><div class="sheat"><i></i><b></b></div></div><div class="spanel"></div><div class="ssay"><canvas></canvas><div><b></b><p></p></div></div>`;
+    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="stut"><small></small><b></b><p></p></div><div class="sbars"><div class="sxp"><i></i><b></b></div><div class="sheat"><i></i><b></b></div></div><div class="spanel"></div><div class="ssay"><canvas></canvas><div><b></b><p></p></div></div>`;
     document.body.appendChild(this.root);
     this.sayEl = this.root.querySelector('.ssay')!;
     this.applySettings();
@@ -246,7 +248,7 @@ class Cinderstorm {
     this.w = newRun({ seed: this.seed });
     this.buildMap();
     this.unitLayer.addChild(this.playerSprite);
-    this.sanctuary();
+    if (!progress.tutorialDone) this.offerTutorial(); else this.sanctuary();
   }
 
   private startRun() {
@@ -535,7 +537,9 @@ class Cinderstorm {
   private afterTick(now: number) {
     const w = this.w;
     music.setIntensity(w.foes.length ? (w.kind === 'boss' ? 1 : 0.7) : 0.15);
+    if (this.tut && w.player.dead) { const p = w.player; p.dead = false; p.hp = p.maxHp; p.inv = 2; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0xffb04a, t: w.time, dur: 1.6, text: 'The Hearth catches you' }); }
     if (w.player.dead && this.mode === 'play') { this.mode = 'dead'; setTimeout(() => this.results(), 1200); return; }
+    if (this.tut) this.tutTick();
     if (w.pendingLevels > 0 && this.mode === 'play') { this.levelUp(); return; }
     if (w.cleared && (w.kind === 'fight' || w.kind === 'elite' || w.kind === 'boss')) {
       if (!this.clearedAt) { this.clearedAt = now; play('portal'); }
@@ -657,6 +661,8 @@ class Cinderstorm {
       if (f.stun > 0) for (let i = 0; i < 3; i++) { const a = now / 200 + (i * Math.PI * 2) / 3; sg.star(f.x + Math.cos(a) * 10, f.y - f.r * 2 + Math.sin(a) * 3, 5, 3, 1.4).fill({ color: 0xffe880 }); }
     }
 
+    // the prologue's waypoints
+    if (this.tut?.marker) { const m = this.tut.marker, pulse = 0.5 + 0.5 * Math.sin(now / 150); hz.circle(m.x, m.y, 18 + pulse * 4).fill({ color: 0xffb04a, alpha: 0.18 }).stroke({ width: 2, color: 0xffd06a, alpha: 0.6 + 0.4 * pulse }); }
     // loose sawblades: teeth that spin
     for (const b of w.bullets) if (!b.friendly && b.bounce > 1e6) {
       const rot = now / 60, pts: number[] = [];
@@ -987,6 +993,91 @@ class Cinderstorm {
     this.on('[data-s="back"]', back);
   }
 
+  private offerTutorial() {
+    this.mode = 'menu';
+    this.root.classList.add('hubmode');
+    this.show(`<div class="sending"><small>Before the storm</small><h2>The Kindling</h2><p>A short, playable prologue: the Hearth teaches you to move, cast, dodge, and burn, one thing at a time. About five minutes.</p><div class="row"><button type="button" class="btn ember" data-s="tut">Begin the Kindling</button><button type="button" class="btn" data-s="skip">I know the storm: skip it</button></div></div>`);
+    this.on('[data-s="tut"]', () => this.startTutorial());
+    this.on('[data-s="skip"]', () => { progress.tutorialDone = true; saveProgress(); this.sanctuary(); });
+  }
+
+  private startTutorial() {
+    this.daily = this.weekly = this.rush = false;
+    this.cls = 'spellwright';
+    this.startRun();
+    const w = this.w;
+    this.hide();
+    w.waves = []; w.foes = []; w.hazards = []; w.bullets = []; w.twist = null; w.encounter = ''; w.cleared = false; w.scripted = true;
+    w.spells = [['ember', 'split'], ['thorn']];
+    this.tut = { stage: -1, t: 0, n: 0, marker: null, blinks: 0, prevBlink: 0, prevBombs: w.player.bombs };
+    this.buildMap();
+    this.resume();
+    this.tutNext();
+  }
+
+  private tutSay(title: string, text: string) {
+    const el = this.root.querySelector<HTMLElement>('.stut')!;
+    el.querySelector('small')!.textContent = `The Kindling · ${Math.max(1, (this.tut?.stage ?? 0) + 1)} of 9`;
+    el.querySelector('b')!.textContent = title;
+    el.querySelector('p')!.textContent = text;
+    el.classList.add('on');
+  }
+
+  /** Begin the next lesson. */
+  private tutNext() {
+    const T = this.tut!, w = this.w, p = w.player, kb = progress.settings.keys;
+    const key = (k: string) => (k === ' ' ? 'Space' : k.toUpperCase());
+    T.stage++; T.t = 0; T.n = 0; T.marker = null;
+    const at = (x: number, y: number) => ({ x: AW * x, y: AH * y });
+    play('portal');
+    switch (T.stage) {
+      case 0: T.marker = at(0.3, 0.5); this.tutSay('Move', `Walk with ${key(kb.up)} ${key(kb.left)} ${key(kb.down)} ${key(kb.right)}, the arrow keys, or the left stick. Step into the glowing circle.`); break;
+      case 1: for (const [x, y] of [[0.3, 0.3], [0.5, 0.25], [0.7, 0.3]]) spawnAt(w, 'dummy', false, at(x, y)); this.tutSay('Cast', 'Aim with the mouse (or the right stick). Hold the left mouse button to cast your first spell. Burn the three straw effigies.'); break;
+      case 2: for (const [x, y] of [[0.25, 0.25], [0.75, 0.25]]) spawnAt(w, 'thornling', false, at(x, y)); this.tutSay('Only the dot', `Thorn-sprites fire slow rings. Only the small white dot at your centre can be hit. Hold ${key(kb.focus)} to focus: you move slowly and the dot is shown. Weave through for a while.`); break;
+      case 3: this.tutSay('Graze', 'Brush past shots without touching your dot: each near miss is a graze. Grazes refill mana and build Heat. Collect eight grazes.'); break;
+      case 4: this.tutSay('Blink', `Press ${key(kb.blink)} (or A) to blink: a short dash in the direction you move. For that instant nothing can touch you. Blink twice.`); break;
+      case 5: for (const f of w.foes) f.hp = 0; for (let i = 0; i < 5; i++) spawnAt(w, 'ghoul', false, at(0.2 + i * 0.15, 0.2)); w.heat = 100; this.tutSay('Overdrive', `Quick kills and grazes build Heat. Your bar is full: press ${key(kb.surge)} (or Y) for Overdrive. Faster, stronger, free spells, and a shockwave that clears shots around you.`); break;
+      case 6: p.xp = Math.max(p.xp, xpNeed(p.level) - 1); spawnAt(w, 'dummy', false, at(0.5, 0.3)); this.tutSay('Grow', 'Foes drop green gems. Gather enough and you level up: choose one of three boons. Burn the effigy and take its gem.'); break;
+      case 7: spawnAt(w, 'hag', false, at(0.5, 0.25)); T.prevBombs = p.bombs = Math.max(1, p.bombs); this.tutSay('Ash Nova', `When the air is full of fire, press ${key(kb.nova)} (or B) for an Ash Nova: it clears every foe shot. You get two each act. Use one now.`); break;
+      case 8: {
+        for (const f of w.foes) f.hp = 0;
+        const s2 = spawnAt(w, 'stag', false, at(0.5, 0.2));
+        s2.hp = s2.maxHp = s2.maxHp * 0.25;
+        this.tutSay('A shadow of the Stag', 'A memory of the Old Stag, the first lord of the storm. Watch it lower its antlers before it charges, and step off the line. Burn it down.');
+        break;
+      }
+      default: this.tutDone(); break;
+    }
+  }
+  private tutTick() {
+    const T = this.tut!, w = this.w, p = w.player;
+    T.t += 1 / 60;
+    if (p.blinkCd > T.prevBlink + 0.2) T.blinks++;
+    T.prevBlink = p.blinkCd;
+    const alive = w.foes.filter((f) => f.type !== 'brazier').length;
+    switch (T.stage) {
+      case 0: if (T.marker && Math.hypot(p.x - T.marker.x, p.y - T.marker.y) < 24) { T.n++; play('click'); T.marker = T.n >= 3 ? null : [{ x: AW * 0.7, y: AH * 0.5 }, { x: AW * 0.5, y: AH * 0.3 }][T.n - 1]; if (T.n >= 3) this.tutNext(); } break;
+      case 1: if (!alive && T.t > 1) this.tutNext(); break;
+      case 2: if (T.t > 14) this.tutNext(); break;
+      case 3: if (T.n === 0) T.n = w.stats.grazes; if (w.stats.grazes - T.n >= 8 || T.t > 30) this.tutNext(); break;
+      case 4: if (T.blinks >= 2) this.tutNext(); break;
+      case 5: if (w.overdrive > 0) T.n = 1; if (T.n && !alive) this.tutNext(); break;
+      case 6: if (p.level >= 2 && !w.pendingLevels && T.t > 1) this.tutNext(); break;
+      case 7: if (p.bombs < T.prevBombs) { for (const f of w.foes) f.hp = 0; this.tutNext(); } break;
+      case 8: if (!w.foes.some((f) => f.boss) && T.t > 2) this.tutNext(); break;
+    }
+    w.cleared = false;
+  }
+  private tutDone() {
+    this.tut = null;
+    this.root.querySelector('.stut')!.classList.remove('on');
+    progress.tutorialDone = true; progress.embers += 25; progress.lifetimeEmbers += 25; saveProgress();
+    addCodex('hearth', 'kindled');
+    this.mode = 'between';
+    this.show(`<div class="sending"><small>The Kindling is done</small><h2>Now, the storm</h2><p>Cass rakes the coals. "The Hearth will catch you when you fall," she says. "It always does. Go and find my people." <br><br>She presses 25 Ash into your hand.</p><div class="row"><button type="button" class="btn ember" data-s="home">To the Last Hearth</button></div></div>`);
+    this.on('[data-s="home"]', () => this.sanctuary());
+  }
+
   private sanctuary() {
     this.mode = 'menu';
     this.root.classList.add('hubmode');
@@ -1028,8 +1119,8 @@ class Cinderstorm {
     switch (id) {
       case 'path': this.menu(); return;
       case 'hearth':
-        this.show(`${head('Cass', 'Keeper of the Last Hearth')}${embers}<div class="row"><button type="button" class="btn ember" data-s="out">Set out</button><button type="button" class="btn" data-s="back">Back</button></div>`);
-        this.portraits(); this.on('[data-s="out"]', () => this.menu()); this.on('[data-s="back"]', back); return;
+        this.show(`${head('Cass', 'Keeper of the Last Hearth')}${embers}<div class="row"><button type="button" class="btn ember" data-s="out">Set out</button><button type="button" class="btn" data-s="tut">Replay the Kindling</button><button type="button" class="btn" data-s="back">Back</button></div>`);
+        this.portraits(); this.on('[data-s="out"]', () => this.menu()); this.on('[data-s="tut"]', () => this.startTutorial()); this.on('[data-s="back"]', back); return;
       case 'brannoch': {
         const list = UPGRADES.filter((u) => !u.npc || progress.rescued.includes(u.npc));
         const locked = UPGRADES.filter((u) => u.npc && !progress.rescued.includes(u.npc)).length;
@@ -1158,7 +1249,7 @@ class Cinderstorm {
     this.on('[data-bright]', (el) => { this.setBright(el.dataset.bright as Bright); this.mode = 'play'; this.pause(); });
     this.on('[data-s="go"]', () => this.resume());
     this.on('[data-s="forge"]', () => this.forge(() => { this.mode = 'paused'; this.resume(); }, 'Back to the fight'));
-    this.on('[data-s="quit"]', () => this.results(true));
+    this.on('[data-s="quit"]', () => { if (this.tut) { this.tut = null; this.root.querySelector('.stut')!.classList.remove('on'); this.sanctuary(); return; } this.results(true); });
   }
   /** A level-up: time stops while you choose one of three boons. */
   private levelUp() {

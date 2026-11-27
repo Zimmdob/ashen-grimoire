@@ -610,3 +610,10 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 @keyframes stoast { 0% { opacity: 0; transform: translateX(20px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 .storm.hubmode .shud, .storm.hubmode .srelics, .storm.hubmode .sbars, .storm.hubmode .sboss, .storm.hubmode .stwist { display: none !important; }
 .storm.hubmode .spanel { background: radial-gradient(ellipse at 50% 40%, #1e1014, #070407 75%); }
+/* the Kindling: lesson card */
+.storm .stut { position: absolute; top: 76px; left: 50%; transform: translate(-50%, -10px); width: min(640px, 86vw); padding: 10px 16px; background: rgba(12, 6, 8, 0.9); border: 1px solid #c8903a; box-shadow: 0 0 24px rgba(255, 120, 40, 0.25); opacity: 0; transition: opacity 0.3s, transform 0.3s; pointer-events: none; z-index: 4; }
+.storm .stut.on { opacity: 1; transform: translate(-50%, 0); }
+.storm .stut small { display: block; color: #c8903a; letter-spacing: 1px; text-transform: uppercase; font-size: 0.75em; }
+.storm .stut b { display: block; color: #ffd890; font-size: 1.25em; margin: 2px 0; }
+.storm .stut p { margin: 0; line-height: 1.4; }
+.storm.hubmode .stut { display: none; }

@@ -48,7 +48,7 @@ export type FoeType =
   | 'wight' | 'wisp' | 'gargoyle' | 'shade'
   | 'cultist' | 'bloodarcher' | 'imp' | 'flagellant'
   | 'stag' | 'warden' | 'lich' | 'choir' | 'king' | 'ashling' | 'brazier' | 'unwritten'
-  | 'automaton' | 'gearspider' | 'slag' | 'anvil' | 'orrery' | 'thief';
+  | 'automaton' | 'gearspider' | 'slag' | 'anvil' | 'orrery' | 'thief' | 'dummy';
 /** Champions carry one of these. */
 export type Affix = 'swift' | 'warded' | 'splitting' | 'vampiric' | 'volleying';
 export const AFFIXES: Record<Affix, string> = { swift: 'Swift', warded: 'Warded', splitting: 'Splitting', vampiric: 'Undying', volleying: 'Volleying' };
@@ -133,6 +133,8 @@ export interface StormWorld {
   rescued: string[]; rescue: string | null;
   /** Carrying Vell's Bell: the King's fall leads beneath the throne. */
   bell: boolean; truePath: boolean; phoenixUsed: boolean;
+  /** A scripted room (the prologue): it never clears itself. */
+  scripted: boolean;
 }
 export interface Perks { hearts: number; dmg: number; mana: number; bombs: number; xp: number; cinders: number; choices: number; revive: boolean; relic: boolean; speed: number; graze: number }
 export const NO_PERKS: Perks = { hearts: 0, dmg: 0, mana: 0, bombs: 0, xp: 0, cinders: 0, choices: 3, revive: false, relic: false, speed: 0, graze: 0 };
@@ -304,6 +306,8 @@ const FOES: Partial<Record<FoeType, FoeDef>> = {
   gearspider: { hp: 22, r: 9, speed: 110, move: 'swarm', timed: [{ kind: 'mine', secs: 2.2, color: 0xffa040 }], cinders: 2 },
   slag: { hp: 45, r: 11, speed: 40, move: 'keep', keep: 220, timed: [{ kind: 'lob', secs: 2.4, speed: 220, color: 0xff6a1a }], cinders: 3 },
   anvil: { hp: 120, r: 13, speed: 30, move: 'still', beat: [{ kind: 'gapring', every: 16, n: 30, speed: 100, gap: 5, color: 0xc8c8d0 }, { kind: 'orbitals', every: 16, at: 8, n: 6, rad: 34, spin: 3, life: 1.4, speed: 120, color: 0xd8a84a }], cinders: 7 },
+  // the prologue's practice target
+  dummy: { hp: 26, r: 10, speed: 0, move: 'still', cinders: 2 },
   // a twist: runs from you with a sack of cinders
   thief: { hp: 70, r: 9, speed: 125, move: 'flee', cinders: 30 },
   // a room's furniture: a brazier that never moves and spits fire on the beat
@@ -457,7 +461,7 @@ export function newRun(seed: number | RunOpts): StormWorld {
     score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
     encounter: '', twist: null, twistT: 0, lastTwist: null, layout: 'groves',
     heat: 0, combo: 0, comboT: 0, bestCombo: 0, overdrive: 0, pendingLevels: 0, waveClock: 0, auraT: 0, lastKill: 0,
-    perks: { ...NO_PERKS, ...(o.perks ?? {}) }, pacts: [...(o.pacts ?? [])], mutators: [...(o.mutators ?? [])], rescued: [...(o.rescued ?? [])], rescue: null, bell: !!o.bell, truePath: false, phoenixUsed: false,
+    perks: { ...NO_PERKS, ...(o.perks ?? {}) }, pacts: [...(o.pacts ?? [])], mutators: [...(o.mutators ?? [])], rescued: [...(o.rescued ?? [])], rescue: null, bell: !!o.bell, truePath: false, phoenixUsed: false, scripted: false,
   };
   addRelic(w, C.relic);
   const pk = w.perks, p = w.player;
@@ -1252,7 +1256,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     for (const f of w.foes) w.fx.push({ kind: 'die', x: f.x, y: f.y, color: 0xff8a3a, t: w.time, dur: 0.5, r: f.r, src: f.type });
     w.foes = [];
   }
-  if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead && !(w.twist === 'siege' && w.twistT > 0)) {
+  if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead && !w.scripted && !(w.twist === 'siege' && w.twistT > 0)) {
     w.cleared = true;
     w.stats.rooms++;
     for (const b of w.bullets) if (!b.friendly) w.fx.push({ kind: 'hit', x: b.x, y: b.y, color: 0xffffff, t: w.time, dur: 0.3 });
