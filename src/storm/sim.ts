@@ -48,7 +48,7 @@ export type FoeType =
   | 'wight' | 'wisp' | 'gargoyle' | 'shade'
   | 'cultist' | 'bloodarcher' | 'imp' | 'flagellant'
   | 'stag' | 'warden' | 'lich' | 'choir' | 'king' | 'ashling' | 'brazier' | 'unwritten'
-  | 'automaton' | 'gearspider' | 'slag' | 'anvil' | 'orrery';
+  | 'automaton' | 'gearspider' | 'slag' | 'anvil' | 'orrery' | 'thief';
 /** Champions carry one of these. */
 export type Affix = 'swift' | 'warded' | 'splitting' | 'vampiric' | 'volleying';
 export const AFFIXES: Record<Affix, string> = { swift: 'Swift', warded: 'Warded', splitting: 'Splitting', vampiric: 'Undying', volleying: 'Volleying' };
@@ -109,7 +109,63 @@ export interface StormWorld {
   rush: boolean;
   /** Little allies from familiar relics, circling you. */
   familiars: { kind: string; x: number; y: number; cd: number; ang: number }[];
+  /** The squad this room holds (shown as the room's title). */
+  encounter: string;
+  /** What makes this fight different, and its timer. */
+  twist: Twist | null; twistT: number; lastTwist: Twist | null;
+  /** The arena's shape. */
+  layout: Layout;
 }
+
+// ------------------------------------------------------------------ battle variety
+export type Twist = 'ambush' | 'horde' | 'duel' | 'siege' | 'meteors' | 'blades' | 'thief' | 'champions';
+export const TWISTS: Record<Twist, { name: string; desc: string }> = {
+  ambush: { name: 'Ambush!', desc: 'They were waiting. They come from every side at once.' },
+  horde: { name: 'Horde', desc: 'Twice as many, half as tough.' },
+  duel: { name: 'Duel', desc: 'One champion, and nothing else. Make it count.' },
+  siege: { name: 'Hold the line', desc: 'The rifts keep opening. Survive until they close.' },
+  meteors: { name: 'Firestorm', desc: 'The sky is falling. Step out of the marks.' },
+  blades: { name: 'Sawblades', desc: 'Loose blades ricochet around the room.' },
+  thief: { name: 'Cinder thief', desc: 'A thief with a sack of cinders. Catch it before it gets away!' },
+  champions: { name: 'Champions\u2019 hall', desc: 'Fewer foes, but every one a champion.' },
+};
+export type Layout = 'groves' | 'cross' | 'ring' | 'corridors' | 'grid' | 'open';
+/** Named squads, act by act: each room is one of these, not a random handful. */
+export const ENCOUNTERS: { name: string; waves: FoeType[][] }[][] = [
+  [
+    { name: 'Wolf Pack', waves: [['wolf', 'wolf', 'wolf'], ['wolf', 'wolf', 'wolf', 'wolf']] },
+    { name: 'Poachers\u2019 Camp', waves: [['xbow', 'xbow', 'boar'], ['xbow', 'xbow', 'boar', 'boar']] },
+    { name: 'Briar Coven', waves: [['thornling', 'thornling', 'thornling'], ['hag', 'thornling', 'thornling', 'thornling']] },
+    { name: 'Stampede', waves: [['boar', 'boar', 'boar'], ['boar', 'boar', 'boar', 'wolf']] },
+    { name: 'Hunting Party', waves: [['wolf', 'xbow', 'thornling'], ['boar', 'xbow', 'wolf', 'hag']] },
+  ],
+  [
+    { name: 'Ghoul Nest', waves: [['ghoul', 'ghoul', 'ghoul', 'ghoul'], ['ghoul', 'ghoul', 'ghoul', 'spitter', 'ghoul']] },
+    { name: 'Necromancer\u2019s Circle', waves: [['ghoul', 'ghoul', 'necro'], ['necro', 'ghoul', 'ghoul', 'spitter']] },
+    { name: 'The Bell Tower', waves: [['bellringer', 'xbow'], ['bellringer', 'ghoul', 'ghoul', 'xbow']] },
+    { name: 'Acid Vats', waves: [['spitter', 'spitter', 'spitter'], ['spitter', 'ghoul', 'spitter', 'ghoul']] },
+  ],
+  [
+    { name: 'Wight Patrol', waves: [['wight', 'wight', 'wight'], ['wight', 'wight', 'shade', 'wight']] },
+    { name: 'Will-o\u2019-Wisps', waves: [['wisp', 'wisp', 'wisp', 'wisp'], ['wisp', 'wisp', 'wight', 'wisp', 'wisp']] },
+    { name: 'Gargoyle Gallery', waves: [['gargoyle', 'gargoyle', 'gargoyle'], ['gargoyle', 'wisp', 'gargoyle', 'wisp']] },
+    { name: 'Shadow Hunt', waves: [['shade', 'shade'], ['shade', 'shade', 'shade', 'wight']] },
+  ],
+  [
+    { name: 'Assembly Line', waves: [['automaton', 'automaton', 'automaton'], ['automaton', 'automaton', 'anvil']] },
+    { name: 'Spider Nest', waves: [['gearspider', 'gearspider', 'gearspider', 'gearspider'], ['gearspider', 'gearspider', 'gearspider', 'slag', 'gearspider']] },
+    { name: 'Slag Pits', waves: [['slag', 'slag', 'gearspider'], ['slag', 'slag', 'slag', 'automaton']] },
+    { name: 'The Anvil Chorus', waves: [['anvil', 'gearspider'], ['anvil', 'anvil', 'gearspider', 'gearspider']] },
+  ],
+  [
+    { name: 'Blood Mass', waves: [['cultist', 'cultist', 'cultist'], ['cultist', 'cultist', 'bloodarcher', 'cultist']] },
+    { name: 'Imp Swarm', waves: [['imp', 'imp', 'imp', 'imp'], ['imp', 'imp', 'imp', 'imp', 'imp']] },
+    { name: 'Penitents\u2019 March', waves: [['flagellant', 'flagellant', 'flagellant'], ['flagellant', 'flagellant', 'cultist', 'flagellant']] },
+    { name: 'Archers in the Loft', waves: [['bloodarcher', 'bloodarcher'], ['bloodarcher', 'bloodarcher', 'imp', 'imp']] },
+  ],
+];
+const CHAMP_NAMES = ['Grisk', 'Morwen', 'Vathek', 'Old Ulm', 'Sable', 'Korrigan', 'Hesk', 'Brannoch', 'Ysolde', 'Mother Rook'];
+const CHAMP_TITLES = ['the Unbowed', 'Twice-Buried', 'of the Long Knife', 'the Patient', 'Gravebright', 'the Hungry', 'Ash-Eater', 'the Last Bell'];
 
 // ------------------------------------------------------------------ randomness (seeded)
 export function rand(w: StormWorld): number {
@@ -155,7 +211,7 @@ type Pat =
 type BeatPat = Pat & { every: number; at?: number };
 /** Fired on a clock: every `secs` seconds. */
 type TimedPat = Pat & { secs: number };
-type Move = 'chase' | 'keep' | 'drift' | 'still' | 'swarm' | 'pace' | 'wander' | 'sleep';
+type Move = 'chase' | 'keep' | 'drift' | 'still' | 'swarm' | 'pace' | 'wander' | 'sleep' | 'flee';
 interface FoeDef { hp: number; r: number; speed: number; move: Move; keep?: number; beat?: BeatPat[]; timed?: TimedPat[]; cinders: number }
 interface Phase { until: number; beat: BeatPat[]; timed: TimedPat[]; move?: Move }
 interface BossDef { hp: number; r: number; speed: number; phases: Phase[]; cinders: number }
@@ -189,6 +245,8 @@ const FOES: Partial<Record<FoeType, FoeDef>> = {
   gearspider: { hp: 22, r: 9, speed: 110, move: 'swarm', timed: [{ kind: 'mine', secs: 2.2, color: 0xffa040 }], cinders: 2 },
   slag: { hp: 45, r: 11, speed: 40, move: 'keep', keep: 220, timed: [{ kind: 'lob', secs: 2.4, speed: 220, color: 0xff6a1a }], cinders: 3 },
   anvil: { hp: 120, r: 13, speed: 30, move: 'still', beat: [{ kind: 'gapring', every: 16, n: 30, speed: 100, gap: 5, color: 0xc8c8d0 }, { kind: 'orbitals', every: 16, at: 8, n: 6, rad: 34, spin: 3, life: 1.4, speed: 120, color: 0xd8a84a }], cinders: 7 },
+  // a twist: runs from you with a sack of cinders
+  thief: { hp: 70, r: 9, speed: 125, move: 'flee', cinders: 30 },
   // a room's furniture: a brazier that never moves and spits fire on the beat
   brazier: { hp: 70, r: 12, speed: 0, move: 'still', beat: [{ kind: 'spiral', every: 2, arms: 4, speed: 80, turn: 0.27, color: 0xff7a2a }], cinders: 5 },
 };
@@ -261,7 +319,22 @@ function makeArena(w: StormWorld, boss: boolean): number[][] {
     if (side === 0) map[1][k] = T_WALL; else if (side === 1) map[MH - 2][k] = T_WALL; else if (side === 2) map[k][1] = T_WALL; else map[k][MW - 2] = T_WALL;
   }
   const put = (x: number, y: number, t: number) => { if (x > 1 && y > 1 && x < MW - 2 && y < MH - 2 && map[y][x] === T_FLOOR) map[y][x] = t; };
-  if (!boss) {
+  // the player's spawn (bottom middle) is always kept clear
+  const putL = (x: number, y: number, t = T_WALL) => { if (!(Math.abs(x - MW / 2) <= 2 && y >= MH - 6)) put(x, y, t); };
+  if (!boss) w.layout = act.trees ? pick(w, ['groves', 'groves', 'open', 'grid', 'cross'] as Layout[]) : pick(w, ['groves', 'cross', 'ring', 'corridors', 'grid', 'open'] as Layout[]);
+  const cx = MW / 2, cy = Math.floor(MH / 2) - 1;
+  if (!boss && w.layout === 'cross') {
+    for (let x = cx - 7; x <= cx + 6; x++) if (Math.abs(x - cx + 0.5) > 1.5) putL(x, cy);
+    for (let y = cy - 5; y <= cy + 4; y++) if (Math.abs(y - cy) > 1) { putL(cx - 1, y); putL(cx, y); }
+  } else if (!boss && w.layout === 'ring') {
+    for (let x = cx - 6; x <= cx + 5; x++) for (const y of [cy - 4, cy + 4]) if (Math.abs(x - cx + 0.5) > 1.5) putL(x, y);
+    for (let y = cy - 4; y <= cy + 4; y++) for (const x of [cx - 6, cx + 5]) if (Math.abs(y - cy) > 1) putL(x, y);
+    putL(cx - 1, cy); putL(cx, cy);
+  } else if (!boss && w.layout === 'corridors') {
+    for (const y of [5, MH - 8]) for (let x = 3; x < MW - 3; x++) if ((x + y) % 9 > 2) putL(x, y);
+  } else if (!boss && w.layout === 'grid') {
+    for (let y = 3; y < MH - 4; y += 4) for (let x = 4 + ((y / 4) % 2) * 2; x < MW - 3; x += 5) putL(x, y);
+  } else if (!boss && w.layout === 'groves') {
     // cover: groves in the forest, pillars elsewhere (mirrored, so rooms feel built)
     const n = 3 + Math.floor(rand(w) * 3);
     for (let g = 0; g < n; g++) {
@@ -322,6 +395,7 @@ export function newRun(seed: number | RunOpts): StormWorld {
     player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0 },
     foes: [], bullets: [], hazards: [], pickups: [], fx: [], spells: [[...C.spells[0]], [...C.spells[1]]], waves: [], waveDelay: 0, cleared: false, nextId: 1, sounds: [], echoes: [],
     score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
+    encounter: '', twist: null, twistT: 0, lastTwist: null, layout: 'groves',
   };
  addRelic(w, C.relic);
   enterRoom(w, 1, 'fight');
@@ -334,7 +408,8 @@ const depth = (w: StormWorld) => 1 + w.act * 0.12 + w.loop * 0.45;
 const bulletSpeed = (w: StormWorld) => DIFFICULTY[w.diff].speed * (1 + w.loop * 0.08) * (has(w, 'c_hurry') ? 1.12 : 1);
 
 /** Enter room `room` of the current act (4 = the boss). */
-export function enterRoom(w: StormWorld, room: number, kind?: RoomKind) {
+/** Enter room `room` (pass `twist` to choose the twist instead of rolling one: tests and debugging). */
+export function enterRoom(w: StormWorld, room: number, kind?: RoomKind, twist?: Twist | null) {
   w.room = room;
   const act = ACTS[w.act];
   w.kind = w.rush || act.roster.length === 0 || room > ROOMS_PER_ACT ? 'boss' : kind ?? 'fight';
@@ -347,14 +422,34 @@ export function enterRoom(w: StormWorld, room: number, kind?: RoomKind) {
   p.shield = has(w, 'ward');
   w.waves = [];
   if (w.kind === 'boss') w.waves = [[{ type: bossOf(w).type, elite: false }]];
-  else if (w.kind === 'fight' || w.kind === 'elite') {
+  w.encounter = ''; w.twist = null; w.twistT = 0;
+  if (w.kind === 'fight' || w.kind === 'elite') {
     const n = 3 + Math.min(3, w.act) + (room > 1 ? 1 : 0);
-    for (let wave = 0; wave < 2; wave++) {
+    const encs = ENCOUNTERS[w.act];
+    if (encs) {
+      // a named squad, topped up to this depth's numbers with its own kind
+      const enc = pick(w, encs);
+      w.encounter = enc.name;
+      for (let wave = 0; wave < 2; wave++) {
+        const kinds = enc.waves[wave], list = kinds.map((type) => ({ type, elite: false }));
+        while (list.length < n - (wave === 0 ? 1 : 0)) list.push({ type: pick(w, kinds), elite: false });
+        w.waves.push(list);
+      }
+    } else for (let wave = 0; wave < 2; wave++) {
       const list: { type: FoeType; elite: boolean }[] = [];
       for (let i = 0; i < n - (wave === 0 ? 1 : 0); i++) list.push({ type: rand(w) < 0.22 + room * 0.06 && act.tough.length ? pick(w, act.tough) : pick(w, act.roster), elite: false });
       w.waves.push(list);
     }
     if (w.kind === 'elite') w.waves[1].push({ type: pick(w, [...act.tough, ...act.roster]), elite: true });
+    // most rooms get a twist, never the same one twice running
+    if (twist !== undefined) { if (twist) applyTwist(w, twist); }
+    else if (rand(w) < (w.kind === 'elite' ? 0.85 : 0.75)) {
+      const pool: Twist[] = w.kind === 'elite' ? ['duel', 'champions', 'ambush', 'meteors', 'blades'] : ['ambush', 'horde', 'siege', 'meteors', 'blades', 'thief', 'champions', 'ambush', 'horde'];
+      let t = pick(w, pool);
+      for (let i = 0; i < 6 && t === w.lastTwist; i++) t = pick(w, pool);
+      applyTwist(w, t);
+    }
+    w.lastTwist = w.twist;
     // deeper down, rooms come furnished: braziers that spit fire, and spike traps in the floor
     if (w.act >= 1 && rand(w) < 0.55) for (let i = 0, n = 1 + Math.floor(rand(w) * 2); i < n; i++) w.waves[0].push({ type: 'brazier', elite: false });
     if (w.act >= 1) {
@@ -366,6 +461,33 @@ export function enterRoom(w: StormWorld, room: number, kind?: RoomKind) {
   }
   if (!w.waves.length) w.cleared = true;
   w.waveDelay = 1.2;
+}
+
+function applyTwist(w: StormWorld, t: Twist) {
+  w.twist = t;
+  const act = ACTS[w.act];
+  switch (t) {
+    case 'horde': w.waves = w.waves.map((l) => [...l, ...l]); break;
+    case 'duel': {
+      const type = pick(w, act.tough.length ? act.tough : act.roster);
+      w.waves = [[{ type, elite: true }]];
+      w.encounter = `${pick(w, CHAMP_NAMES)} ${pick(w, CHAMP_TITLES)}`;
+      break;
+    }
+    case 'champions': w.waves = w.waves.map((l) => l.slice(0, Math.max(1, Math.ceil(l.length / 3))).map((x) => ({ ...x, elite: true }))); break;
+    case 'siege': w.waves = [w.waves[0]]; w.twistT = 22; break;
+    case 'meteors': w.twistT = 3; break;
+    case 'thief': w.waves[0].push({ type: 'thief', elite: false }); w.twistT = 16; break;
+    case 'blades': {
+      const n = 2 + (w.act >= 3 ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const a = rand(w) * Math.PI * 2, at = freeSpot(w, 12, w.player, 200, true);
+        bullet(w, { x: at.x, y: at.y, vx: Math.cos(a) * 150, vy: Math.sin(a) * 150, r: 10, dmg: 1, life: 1e9, friendly: false, color: 0xd8d8e8, bounce: 1e9 });
+      }
+      break;
+    }
+    case 'ambush': break;
+  }
 }
 
 /** After the boss: on to the next act (or the next loop of the Abyss). Returns false when the run is won. */
@@ -396,7 +518,7 @@ function spawnFoe(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number
   const boss = BOSSES[type];
   const fd = FOES[type];
   const base = boss ?? fd!;
-  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * (elite ? 3.2 : 1);
+  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * (elite ? 3.2 : 1) * (boss ? 1 : w.twist === 'horde' ? 0.5 : w.twist === 'champions' ? 0.6 : w.twist === 'duel' ? 1.8 : 1);
   const r = base.r * (elite ? 1.3 : 1);
   const p = at ?? (boss ? { x: AW / 2, y: TILE * 5 } : freeSpot(w, r, w.player, 230, true));
   const f: Foe = {
@@ -406,7 +528,7 @@ function spawnFoe(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number
     affix: elite ? pick(w, Object.keys(AFFIXES) as Affix[]) : null,
   };
   if (f.affix === 'swift') f.speed *= 1.5;
-  if (f.affix) w.fx.push({ kind: 'text', x: f.x, y: f.y - 30, color: 0xffd06a, t: w.time, dur: 2, text: `${AFFIXES[f.affix]} champion` });
+  if (f.affix) w.fx.push({ kind: 'text', x: f.x, y: f.y - 30, color: 0xffd06a, t: w.time, dur: 2, text: w.twist === 'duel' ? w.encounter : `${AFFIXES[f.affix]} champion` });
   if (boss) w.bossHits = w.stats.hitsTaken;
   const timed = boss ? boss.phases.flatMap((ph) => ph.timed) : fd!.timed ?? [];
   f.timers = timed.map((tp) => tp.secs * (0.4 + rand(w) * 0.6));
@@ -686,7 +808,50 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
   // waves
   if (!w.foes.length && w.waves.length) {
     w.waveDelay -= dt;
-    if (w.waveDelay <= 0) { for (const t of w.waves.shift()!) spawnFoe(w, t.type, t.elite); w.waveDelay = 1.4; }
+    if (w.waveDelay <= 0) {
+      const list = w.waves.shift()!, ring = w.twist === 'ambush';
+      list.forEach((t, i) => {
+        // an ambush closes in from every side at once
+        let at: { x: number; y: number } | undefined;
+        if (ring && t.type !== 'brazier') {
+          const a = (i / list.length) * Math.PI * 2 + rand(w);
+          for (let dist = 170; dist > 90 && !at; dist -= 20) { const x = p.x + Math.cos(a) * dist, y = p.y + Math.sin(a) * dist; if (x > TILE * 2 && y > TILE * 2 && x < AW - TILE * 2 && y < AH - TILE * 2 && !blocked(w, x, y, 14) && tileAt(w, x, y) !== T_LAVA) at = { x, y }; }
+        }
+        spawnFoe(w, t.type, t.elite, at);
+        if (at) w.foes[w.foes.length - 1].st = 1.1;
+      });
+      w.waveDelay = 1.4;
+    }
+  }
+  // twists that run on a clock
+  if (!w.cleared && !p.dead && w.twist) {
+    if (w.twist === 'siege' && w.twistT > 0) {
+      const before = w.twistT;
+      w.twistT -= dt;
+      if (Math.floor(before / 3) !== Math.floor(w.twistT / 3) && ACTS[w.act].roster.length) for (let i = 0; i < 2; i++) spawnFoe(w, pick(w, ENCOUNTERS[w.act]?.flatMap((e) => e.waves[0]) ?? ACTS[w.act].roster), false);
+      if (w.twistT <= 0) {
+        // the rifts close: everything here crumbles
+        for (const f of w.foes) if (!f.boss) f.hp = 0;
+        w.fx.push({ kind: 'phase', x: p.x, y: p.y, color: 0xffd06a, t: w.time, dur: 1, r: 900, text: 'Held!' });
+        w.sounds.push('portal');
+      }
+    } else if (w.twist === 'meteors' && w.foes.length) {
+      w.twistT -= dt;
+      if (w.twistT <= 0) {
+        w.twistT = 2.2;
+        for (let i = 0; i < 3; i++) { const a = rand(w) * Math.PI * 2, d = i === 0 ? rand(w) * 20 : 40 + rand(w) * 90; w.hazards.push({ kind: 'pool', x: p.x + Math.cos(a) * d, y: p.y + Math.sin(a) * d, r: 34, ang: 0, len: 0, warn: 1.1, life: 0.9, t: 0, color: 0xff7a2a }); }
+      }
+    } else if (w.twist === 'thief') {
+      const th = w.foes.find((f) => f.type === 'thief' && f.state !== 'spawn');
+      if (th) {
+        w.twistT -= dt;
+        if (w.twistT <= 0) {
+          w.foes.splice(w.foes.indexOf(th), 1);
+          w.fx.push({ kind: 'text', x: th.x, y: th.y - 20, color: 0xffd06a, t: w.time, dur: 1.6, text: 'The thief got away!' });
+          w.fx.push({ kind: 'burst', x: th.x, y: th.y, color: 0xffd06a, t: w.time, dur: 0.4, r: 30 });
+        }
+      }
+    }
   }
 
   // foes
@@ -756,6 +921,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
         case 'keep': { const want = def(f).keep ?? 240; const away = d < want - 40 ? -1 : d > want + 50 ? 1 : 0.2 * Math.sin(f.t); const side = Math.cos(f.t * 0.7 + f.id) * 0.6; go((dx / d) * away - (dy / d) * side, (dy / d) * away + (dx / d) * side); break; }
         case 'drift': { const a = Math.atan2(dy, dx) + Math.PI / 2, away = d < 170 ? -1 : d > 300 ? 1 : 0; go(Math.cos(a) * 0.8 + (dx / d) * away, Math.sin(a) * 0.8 + (dy / d) * away); break; }
         case 'wander': go(Math.cos(f.t * 0.4 + f.id), Math.sin(f.t * 0.7 + f.id) * 0.6); break;
+        case 'flee': { const j = Math.sin(f.t * 2.3 + f.id) * 0.9; go(-dx / d + (-dy / d) * j, -dy / d + (dx / d) * j); break; }
         case 'pace': { const tx = AW / 2 + Math.cos(f.t * 0.5) * AW * 0.28, ty = TILE * 5 + Math.sin(f.t * 0.8) * TILE * 1.5, ex = tx - f.x, ey = ty - f.y, ed = Math.hypot(ex, ey) || 1; go(ex / ed, ey / ed); break; }
         case 'still': case 'sleep': break;
       }
@@ -778,7 +944,9 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       const ux = Math.cos(h.ang), uy = Math.sin(h.ang), px = p.x - h.x, py = p.y - h.y, along = px * ux + py * uy;
       if (along > 0 && Math.abs(px * uy - py * ux) < h.r + p.r - 2) hurtPlayer(w);
     } else {
-      if (h.t > h.life) { w.hazards.splice(i, 1); continue; }
+      if (h.t > h.warn + h.life) { w.hazards.splice(i, 1); continue; }
+      if (h.t < h.warn) continue;
+      if (h.warn && h.t - dt < h.warn) { w.fx.push({ kind: 'boom', x: h.x, y: h.y, color: h.color, t: w.time, dur: 0.4, r: h.r }); w.sounds.push('boom'); }
       if (Math.hypot(p.x - h.x, p.y - h.y) < h.r * 0.8 + p.r) hurtPlayer(w);
     }
   }
@@ -934,7 +1102,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     w.foes.splice(i, 1);
     killed(w, f);
   }
-  if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead) {
+  if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead && !(w.twist === 'siege' && w.twistT > 0)) {
     w.cleared = true;
     w.stats.rooms++;
     for (const b of w.bullets) if (!b.friendly) w.fx.push({ kind: 'hit', x: b.x, y: b.y, color: 0xffffff, t: w.time, dur: 0.3 });

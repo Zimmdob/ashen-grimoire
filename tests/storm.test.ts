@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spellStats } from '../src/storm/cards';
-import { ACTS, addRelic, doorChoices, enterRoom, newRun, nextAct, NO_INPUT, onBeat, relicChoices, update, type Input, type StormWorld } from '../src/storm/sim';
+import { ACTS, addRelic, doorChoices, enterRoom, isWall, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
 import { RELIC_IDS, STORM_CARDS, BASES, MODS } from '../src/storm/cards';
 
 /** A bot that can't be hurt: aims at the nearest foe and fires both spells, circling to keep moving. */
@@ -219,5 +219,43 @@ describe('cinderstorm: forges, familiars, rush', () => {
     const w = newRun({ seed: 3, rush: true });
     enterRoom(w, 1);
     expect(w.kind).toBe('boss');
+  });
+});
+
+describe('cinderstorm: battle variety', () => {
+  it('every twist can be fought through, in every act', () => {
+    for (const t of Object.keys(TWISTS) as Twist[]) for (let act = 0; act < 5; act++) {
+      const w = newRun({ seed: 100 + act });
+      w.spells = [['ember', 'split', 'seek', 'haste'], ['bone', 'pierce', 'echo']];
+      w.act = act;
+      enterRoom(w, 2, t === 'duel' ? 'elite' : 'fight', t);
+      expect(w.twist).toBe(t);
+      const ticks = play(w, 60 * 120);
+      expect(w.cleared, `${t} in act ${act} (${ticks} ticks)`).toBe(true);
+      if (t === 'siege') expect(ticks).toBeGreaterThan(60 * 20);
+    }
+  });
+  it('rooms are named squads, on varied ground, and the spawn is always clear', () => {
+    const names = new Set<string>(), layouts = new Set<string>(), twists = new Set<string>();
+    for (let seed = 1; seed < 80; seed++) {
+      const w = newRun({ seed });
+      w.act = seed % 5;
+      enterRoom(w, 1 + (seed % 3), seed % 4 ? 'fight' : 'elite');
+      names.add(w.encounter); layouts.add(w.layout); if (w.twist) twists.add(w.twist);
+      expect(isWall(w, w.player.x, w.player.y)).toBe(false);
+      expect(w.waves.flat().length).toBeGreaterThan(0);
+    }
+    expect(names.size).toBeGreaterThan(12);
+    expect(layouts.size).toBe(6);
+    expect(twists.size).toBeGreaterThanOrEqual(7);
+  });
+  it('a thief that is not caught gets away, and the room still clears', () => {
+    const w = newRun({ seed: 5 });
+    enterRoom(w, 1, 'fight', 'thief');
+    w.waves = [[{ type: 'thief', elite: false }]];
+    let t = 0;
+    while (!w.cleared && t < 60 * 30) { w.player.inv = 1; update(w, NO_INPUT); t++; }
+    expect(w.cleared).toBe(true);
+    expect(w.stats.kills).toBe(0);
   });
 });

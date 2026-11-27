@@ -1,5 +1,6 @@
 import { Texture } from 'pixi.js';
 import { paintDoll } from './doll';
+import { BIG, CREATURES, paintCreature } from './bestiary';
 import type { Look } from '../sim/types';
 
 // Original 16x16 pixel art, drawn as character grids. '.' is transparent.
@@ -248,30 +249,34 @@ function overlay(src: HTMLCanvasElement, color: string, mode: GlobalCompositeOpe
   return c;
 }
 
-/** A 1px-dilated white silhouette (18x18) used for threat and target outlines via tint. */
+/** A dilated white silhouette (18/16 of the sprite) used for threat and target outlines via tint. */
 function outline(src: HTMLCanvasElement): HTMLCanvasElement {
   const sil = overlay(src, '#ffffff', 'source-in', false);
+  const d = src.width / 16;
   const c = document.createElement('canvas');
-  c.width = 18;
-  c.height = 18;
+  c.width = c.height = src.width + 2 * d;
   const g = c.getContext('2d')!;
-  for (const [dx, dy] of [[0, 1], [2, 1], [1, 0], [1, 2]]) g.drawImage(sil, dx, dy);
+  for (const [dx, dy] of [[0, 1], [2, 1], [1, 0], [1, 2]]) g.drawImage(sil, dx * d, dy * d);
   return c;
 }
 
-export interface SpriteSet { base: Texture; dead: Texture; ice: Texture; white: Texture; outline: Texture; canvas: HTMLCanvasElement }
+/** A sprite and its tinted variants. `res` is its pixel size (16 = classic; draw at scale 16/res). */
+export interface SpriteSet { base: Texture; dead: Texture; ice: Texture; white: Texture; outline: Texture; canvas: HTMLCanvasElement; res: number; frames: Texture[] }
 
-export function spriteSet(def: SpriteDef): SpriteSet {
-  const base = draw(def);
+function setFrom(base: HTMLCanvasElement, more: HTMLCanvasElement[] = []): SpriteSet {
+  const b = Texture.from(base);
   return {
     canvas: base,
-    base: Texture.from(base),
+    res: base.width,
+    base: b,
+    frames: [b, ...more.map((c) => Texture.from(c))],
     dead: Texture.from(overlay(base, 'rgba(25,8,8,0.55)', 'source-atop', true)),
     ice: Texture.from(overlay(base, 'rgba(140,210,255,0.55)', 'source-atop', true)),
     white: Texture.from(overlay(base, '#ffffff', 'source-in', false)),
     outline: Texture.from(outline(base)),
   };
 }
+export function spriteSet(def: SpriteDef): SpriteSet { return setFrom(draw(def)); }
 
 export function buildSprites(): Record<string, SpriteSet> {
   const out: Record<string, SpriteSet> = {};
@@ -280,16 +285,11 @@ export function buildSprites(): Record<string, SpriteSet> {
     if (rows) out[k] = spriteSet({ p: { ...(SPRITES[v.from]?.p ?? {}), ...v.p }, r: rows });
   }
   for (const [k, def] of Object.entries(EXTRA)) out[k] = spriteSet(def);
-  for (const [k, def] of Object.entries(SPRITES)) {
-    const base = draw(def);
-    out[k] = {
-      canvas: base,
-      base: Texture.from(base),
-      dead: Texture.from(overlay(base, 'rgba(25,8,8,0.55)', 'source-atop', true)),
-      ice: Texture.from(overlay(base, 'rgba(140,210,255,0.55)', 'source-atop', true)),
-      white: Texture.from(overlay(base, '#ffffff', 'source-in', false)),
-      outline: Texture.from(outline(base)),
-    };
+  for (const [k, def] of Object.entries(SPRITES)) out[k] = spriteSet(def);
+  // the painted bestiary replaces the old 16px grids for every creature it knows
+  for (const k of Object.keys(CREATURES)) {
+    const res = BIG.has(k) ? 48 : 32;
+    out[k] = setFrom(paintCreature(k, 0, res)!, [paintCreature(k, 1, res)!]);
   }
   return out;
 }

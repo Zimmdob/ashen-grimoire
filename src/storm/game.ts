@@ -10,6 +10,7 @@ import { BASES, CURSE_IDS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STO
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
   ROOMS_PER_ACT, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
+  TWISTS,
 } from './sim';
 import { T_LAVA } from '../sim/constants';
 
@@ -33,6 +34,7 @@ const FOE_INFO: Record<string, [string, string]> = {
   cultist: ['Cultist', 'Three-armed spirals.'], bloodarcher: ['Blood Archer', 'Warned beams across the room.'], imp: ['Imp', 'Blinks about, bursting into rings.'], flagellant: ['Flagellant', 'Charges, then scatters shot.'],
   brazier: ['Brazier', 'Room furniture that spits fire. Breakable.'], ashling: ['Ashling', 'The King\u2019s little embers.'],
   stag: ['The Old Stag', 'Boss of the Greenwood.'], warden: ['The Bone Warden', 'Boss of the Bone Cellars.'], lich: ['The Frost Lich', 'Boss of the Frost Ossuary.'], orrery: ['The Brass Orrery', 'Boss of the Clockwork Forges: its shots orbit it like planets.'],
+  thief: ['Cinder Thief', 'Runs with a sack of cinders. Catch it before it escapes.'],
   choir: ['The Red Choir', 'Boss of the Bloodmoon Cathedral.'], king: ['The Hollow King', 'At the bottom of the Reach.'], unwritten: ['The Unwritten Page', 'At the bottom of the Abyss.'],
 };
 interface Shard { x: number; y: number; vx: number; vy: number; c: number; life: number; age: number; s: number }
@@ -185,6 +187,7 @@ class Cinderstorm {
   private muzzle = 0;
   private lastShots = 0;
   private famSprites = new Map<string, Sprite>();
+  private twistText = '';
   private rush = false;
   private seen: string[] = (() => { try { return JSON.parse(localStorage.getItem('ashen-storm-seen') || '[]') as string[]; } catch { return []; } })();
 
@@ -192,7 +195,7 @@ class Cinderstorm {
 
   async boot() {
     this.root.className = 'storm';
-    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="spanel"></div>`;
+    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="spanel"></div>`;
     document.body.appendChild(this.root);
     this.hud = this.root.querySelector('.shud')!;
     this.panel = this.root.querySelector('.spanel')!;
@@ -284,6 +287,9 @@ class Cinderstorm {
     const act = ACTS[this.w.act];
     music.setRegion(this.w.kind === 'boss' ? act.bossTune : act.tune);
     this.resume();
+    // every fight is introduced: its squad, and its twist
+    const w = this.w;
+    if (w.kind === 'fight' || w.kind === 'elite') this.banner(w.twist ? TWISTS[w.twist].name : w.encounter || act.name, w.twist ? `${w.twist === 'duel' ? w.encounter : w.encounter ? w.encounter + ' \u2014 ' : ''}${w.twist === 'duel' ? '' : TWISTS[w.twist].desc}` : 'Clear the room');
   }
 
   // ------------------------------------------------------------------ controls
@@ -406,7 +412,7 @@ class Cinderstorm {
       if (f.kind === 'die' && (f.r ?? 0) > 18) { this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; this.punch = 0.08; }
       if (f.kind === 'phase' || f.kind === 'nova') this.punch = Math.max(this.punch, 0.05);
       // the fallen shatter into the pixels they were drawn with
-      if (f.kind === 'die') this.shatter(f.src ?? 'wizard', f.x, f.y, f.src ? ((f.r ?? 10) > 18 ? 3.2 : (f.r ?? 10) > 13 ? 2.6 : 2) : 2);
+      if (f.kind === 'die') this.shatter(f.src ?? 'wizard', f.x, f.y, f.src ? ((f.r ?? 10) > 18 ? 3.8 : (f.r ?? 10) > 13 ? 3.2 : 2.6) : 2);
     }
     for (const f of this.w.foes) if (!this.seen.includes(f.type)) { this.seen.push(f.type); try { localStorage.setItem('ashen-storm-seen', JSON.stringify(this.seen)); } catch { /* storage unavailable */ } }
     // a boss arriving gets a title card
@@ -421,7 +427,9 @@ class Cinderstorm {
       px = [];
       const c = (this.sprites[SPRITE_OF[key] ?? key] ?? this.sprites.ghoul).canvas;
       const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-      for (let yy = 0; yy < c.height; yy++) for (let xx = 0; xx < c.width; xx++) { const i = (yy * c.width + xx) * 4; if (d[i + 3] > 100) px.push({ x: xx - c.width / 2, y: yy - c.height * 0.75, c: (d[i] << 16) | (d[i + 1] << 8) | d[i + 2] }); }
+      // painted sprites are 2-3x finer: shatter them in chunks the size of one classic pixel
+      const st = Math.max(1, Math.round(c.width / 16));
+      for (let yy = 0; yy < c.height; yy += st) for (let xx = 0; xx < c.width; xx += st) { const i = ((yy + (st >> 1)) * c.width + xx + (st >> 1)) * 4; if (d[i + 3] > 100) px.push({ x: (xx - c.width / 2) / st, y: (yy - c.height * 0.75) / st, c: (d[i] << 16) | (d[i + 1] << 8) | d[i + 2] }); }
       this.pixCache.set(key, px);
     }
     for (const q of px) {
@@ -515,8 +523,16 @@ class Cinderstorm {
         else for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) hz.circle(X + 8 + i * 8, Y + 8 + j * 8, 1.2).fill({ color: 0x000000, alpha: 0.5 });
         continue;
       }
+      if (h.kind === 'pool' && h.t < h.warn) {
+        // a mark where something is about to land
+        const k = h.t / h.warn;
+        hz.circle(h.x, h.y, h.r).stroke({ width: 2, color: h.color, alpha: 0.5 + 0.4 * (Math.floor(now / 90) % 2) });
+        hz.circle(h.x, h.y, h.r * k).fill({ color: h.color, alpha: 0.18 });
+        hz.moveTo(h.x - 8, h.y).lineTo(h.x + 8, h.y).moveTo(h.x, h.y - 8).lineTo(h.x, h.y + 8).stroke({ width: 2, color: h.color, alpha: 0.7 });
+        continue;
+      }
       if (h.kind === 'pool') {
-        const a = Math.min(1, (h.life - h.t) * 2);
+        const a = Math.min(1, (h.warn + h.life - h.t) * 2);
         hz.circle(h.x, h.y, h.r).fill({ color: h.color, alpha: 0.28 * a }).stroke({ width: 2, color: h.color, alpha: 0.6 * a });
       } else {
         // stop the beam at the edge of the room
@@ -549,8 +565,10 @@ class Cinderstorm {
         this.foeSprites.set(f.id, s);
         this.unitLayer.addChild(s);
       }
-      const big = f.boss ? 3.2 : f.elite ? 2.6 : 2;
+      const fset = this.sprites[SPRITE_OF[f.type] ?? f.type] ?? this.sprites.ghoul;
+      const big = (f.boss ? 3.8 : f.elite ? 3.2 : 2.6) * (16 / fset.res);
       s.scale.set(p.x < f.x ? -big : big, big);
+      if (f.state !== 'spawn') s.texture = fset.frames[Math.floor(now / (f.state === 'wind' ? 120 : 320) + f.id * 0.37) % fset.frames.length];
       s.position.set(f.x, f.y);
       s.alpha = f.state === 'spawn' ? 0.25 + 0.3 * Math.sin(now / 60) : f.state === 'sleep' ? 0.85 : 1;
       s.tint = f.flash > 0.5 ? 0xff9a9a : f.state === 'wind' ? 0xff8a8a : f.slow > 0 ? 0xa8d8ff : f.burnT > 0 ? 0xffc890 : f.elite ? 0xffd890 : f.state === 'sleep' ? 0x8a8a9a : 0xffffff;
@@ -573,6 +591,12 @@ class Cinderstorm {
       if (f.stun > 0) for (let i = 0; i < 3; i++) { const a = now / 200 + (i * Math.PI * 2) / 3; sg.star(f.x + Math.cos(a) * 10, f.y - f.r * 2 + Math.sin(a) * 3, 5, 3, 1.4).fill({ color: 0xffe880 }); }
     }
 
+    // loose sawblades: teeth that spin
+    for (const b of w.bullets) if (!b.friendly && b.bounce > 1e6) {
+      const rot = now / 60, pts: number[] = [];
+      for (let i = 0; i < 16; i++) { const a = rot + (i / 16) * Math.PI * 2, r = i % 2 ? b.r * 1.15 : b.r * 1.65; pts.push(b.x + Math.cos(a) * r, b.y + Math.sin(a) * r); }
+      hz.poly(pts).fill({ color: 0xb8b8c8 }).stroke({ width: 2, color: 0x2a2a30 });
+    }
     // bullets: a soft glow, a solid orb in their colour with a dark rim, a white-hot centre.
     // Foe shots are drawn bolder than yours so they're always what you see first.
     const bs = w.bullets;
@@ -625,7 +649,8 @@ class Cinderstorm {
       let sp = this.famSprites.get(fam.kind);
       if (!sp) { sp = new Sprite(Texture.from((this.sprites[SPRITE_OF[fam.kind] ?? 'imp'] ?? this.sprites.imp).canvas)); sp.anchor.set(0.5, 0.75); this.famSprites.set(fam.kind, sp); this.unitLayer.addChild(sp); }
       sp.position.set(fam.x, fam.y + Math.sin(now / 200 + fam.ang) * 2);
-      sp.scale.set(fam.x < p.x ? 1.4 : -1.4, 1.4);
+      const fs = 1.4 * 16 / (this.sprites[SPRITE_OF[fam.kind] ?? 'imp'] ?? this.sprites.imp).res;
+      sp.scale.set(fam.x < p.x ? fs : -fs, fs);
       sp.visible = !p.dead;
     }
     for (const [k, sp] of this.famSprites) if (!seenF.has(k)) { sp.destroy(); this.famSprites.delete(k); }
@@ -772,6 +797,9 @@ class Cinderstorm {
     };
     const act = ACTS[w.act];
     const where = w.kind === 'boss' ? bossOf(w).name : `${act.name} · ${Math.min(w.room, ROOMS_PER_ACT)}/${ROOMS_PER_ACT}`;
+    // a running twist shows its clock
+    const tw = w.twist && !w.cleared ? (w.twist === 'siege' && w.twistT > 0 ? `Hold the line: ${Math.ceil(w.twistT)}s` : w.twist === 'thief' && w.foes.some((f) => f.type === 'thief' && f.state !== 'spawn') ? `Catch the thief: ${Math.max(0, Math.ceil(w.twistT))}s` : TWISTS[w.twist].name) : '';
+    if (tw !== this.twistText) { this.twistText = tw; const el = this.root.querySelector<HTMLElement>('.stwist'); if (el) { el.textContent = tw; el.style.display = tw && this.mode === 'play' ? '' : 'none'; } }
     const key = `${p.hp}|${p.maxHp}|${p.shield}|${Math.round(p.mana)}|${p.bombs}|${p.cinders}|${Math.round(p.blinkCd * 10)}|${Math.round(p.cdA * 20)}|${Math.round(p.cdB * 20)}|${w.room}|${w.act}|${w.spells[0].join()}|${w.spells[1].join()}|${Math.floor(w.score / 10)}|${p.relics.length}`;
     if (key !== this.hudKey) {
       this.hudKey = key;

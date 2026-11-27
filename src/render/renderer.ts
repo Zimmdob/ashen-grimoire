@@ -588,7 +588,7 @@ export class GameRenderer {
     g.clear();
     for (const v of this.views.values()) {
       const set = this.setFor(v.type, v.owner);
-      const s = this.scaleOf(v) * 2;
+      const s = this.scaleOf(v) * 2 * (16 / set.res);
       const alive = v.s.alive && !(v.s.downed > 0);
       const bob = alive && !UNITS[v.type].prop ? Math.round(Math.sin(now / 320 + v.id) * 1) : 0;
       for (const sp of [v.main, v.flashS, v.ghost]) {
@@ -596,7 +596,7 @@ export class GameRenderer {
         sp.scale.set(v.flip ? -s : s, s);
         sp.rotation = alive ? 0 : Math.PI / 2;
       }
-      v.main.texture = !alive ? set.dead : v.s.frozen > 0 ? set.ice : set.base;
+      v.main.texture = !alive ? set.dead : v.s.frozen > 0 ? set.ice : set.frames[Math.floor(now / 380 + v.id * 0.37) % set.frames.length];
       v.ghost.texture = v.main.texture;
       v.main.zIndex = v.flashS.zIndex = alive ? v.y : v.y - 10000;
       v.outline.zIndex = v.main.zIndex - 0.5;
@@ -622,7 +622,7 @@ export class GameRenderer {
         continue;
       }
       if (!alive) {
-        g.ellipse(v.x, v.y + 4, 12 * s / 2, 5 * s / 2).fill({ color: 0x3a0608, alpha: 0.75 });
+        g.ellipse(v.x, v.y + 4, 12 * this.scaleOf(v), 5 * this.scaleOf(v)).fill({ color: 0x3a0608, alpha: 0.75 });
         continue;
       }
       g.ellipse(v.x, v.y + 6, 9 * s / 2, 3.5 * s / 2).fill({ color: 0x000000, alpha: 0.5 });
@@ -1056,7 +1056,7 @@ export class GameRenderer {
       const set = this.setFor(v.type, v.owner);
       const alive = v.s.alive && !(v.s.downed > 0);
       const s = this.scaleOf(v);
-      const tex = !v.s.alive ? set.dead : v.s.frozen > 0 && alive ? set.ice : set.base;
+      const tex = !v.s.alive ? set.dead : v.s.frozen > 0 && alive ? set.ice : set.frames[Math.floor(now / 380 + v.id * 0.37) % set.frames.length];
       const threat = alive && this.ov.threats.has(v.id);
       const targeted = this.ov.targets.has(v.id);
       const hover = this.ov.hoverId === v.id && alive;

@@ -527,3 +527,13 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .sbanner small { display: block; font-size: clamp(18px, 2vw, 28px); color: #c8a87a; letter-spacing: 8px; text-transform: uppercase; }
 .storm .sbanner.on { animation: sbanner 2.6s ease-out forwards; }
 @keyframes sbanner { 0% { opacity: 0; transform: scale(1.25); filter: blur(6px); } 12% { opacity: 1; transform: scale(1); filter: blur(0); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-12px); } }
+
+/* Cinderstorm: the running twist, under the boss bar */
+.storm .stwist { position: absolute; top: 46px; left: 50%; transform: translateX(-50%); padding: 3px 14px; background: rgba(10, 6, 8, 0.78); border: 1px solid #c8903a; color: #ffd890; font: 20px VT323, monospace; letter-spacing: 1px; pointer-events: none; text-shadow: 0 0 6px #ff8a2a; }
+/* the bestiary */
+.storm .sbeasts { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; max-height: 60vh; overflow: auto; margin: 10px 0; }
+.storm .sbeasts > div { display: grid; grid-template-columns: 72px 1fr; grid-template-rows: auto 1fr; column-gap: 8px; align-items: center; padding: 6px; background: rgba(255, 240, 210, 0.05); border: 1px solid rgba(232, 200, 140, 0.2); }
+.storm .sbeasts img, .storm .sbeasts i { grid-row: span 2; width: 72px; height: 72px; image-rendering: pixelated; display: grid; place-items: center; font-size: 34px; color: #6a5a4a; font-style: normal; }
+.storm .sbeasts b { color: #ffd890; }
+.storm .sbeasts span { font-size: 0.85em; opacity: 0.8; }
+.storm .sbeasts .unseen { opacity: 0.45; }
