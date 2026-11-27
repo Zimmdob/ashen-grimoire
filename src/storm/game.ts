@@ -416,7 +416,7 @@ class Cinderstorm {
       if (f.kind === 'nova') { this.flash = { a: 0.45, color: f.color }; this.shake = Math.max(this.shake, 12); }
       if (f.kind === 'phase') {
         this.flash = { a: 0.5, color: f.text === 'OVERDRIVE' ? 0xffc070 : 0xffffff }; this.hitStop = 0.3; this.shake = 16;
-        if (f.text === 'OVERDRIVE') this.banner('Overdrive!', 'Faster, stronger, free spells: 6 seconds');
+        if (f.text === 'OVERDRIVE') this.banner('Overdrive!', `Faster, stronger, free spells: ${Math.round(this.w.overdrive)} seconds`);
         else if (f.text === 'Held!') this.banner('Held!', 'The rifts are closed');
         else this.banner(`Phase ${f.text ?? ''}`, bossOf(this.w).name);
       }
@@ -592,6 +592,8 @@ class Cinderstorm {
     sg.clear();
     // rune circles: a slow ritual ring under every boss, a small one under you while you cast
     for (const f of w.foes) if (f.boss && f.state !== 'spawn') runeCircle(sg, f.x, f.y, f.r * 2.6, now / 2400, [0x8cff9a, 0xe8e0c8, 0x9fe0ff, 0xffd06a, 0xff3a5a, 0xff8a3a][w.act] ?? 0xffd06a, 0.45);
+    const aura = p.boons.aura ?? 0;
+    if (aura && !p.dead) { const r = 62 + 6 * aura; sg.circle(p.x, p.y, r).fill({ color: 0xff7a2a, alpha: 0.06 }).stroke({ width: 1.5, color: 0xff9a3a, alpha: 0.3 + 0.1 * Math.sin(now / 200) }); }
     if (w.overdrive > 0 && !p.dead) { runeCircle(sg, p.x, p.y + 2, 28, now / 260, 0xffb04a, 0.85); runeCircle(sg, p.x, p.y + 2, 40, -now / 400, 0xffd06a, 0.4 * Math.min(1, w.overdrive)); }
     const casting = this.inp.fireA || this.inp.fireB;
     if (!p.dead && casting) runeCircle(sg, p.x, p.y + 2, 18, -now / 700, CLASSES[w.player.cls].tint === 0xffffff ? 0xb48cff : CLASSES[w.player.cls].tint, 0.5);
@@ -821,7 +823,7 @@ class Cinderstorm {
       const lv = `Lv ${p.level}`;
       if (xpB.lastElementChild!.textContent !== lv) xpB.lastElementChild!.textContent = lv;
       const full = w.heat >= 100, od = w.overdrive > 0;
-      (hB.firstElementChild as HTMLElement).style.width = `${od ? (w.overdrive / 6) * 100 : w.heat}%`;
+      (hB.firstElementChild as HTMLElement).style.width = `${od ? (w.overdrive / (6 + (p.boons.frenzy ?? 0))) * 100 : w.heat}%`;
       hB.classList.toggle('full', full && !od); hB.classList.toggle('od', od);
       const ht = od ? 'OVERDRIVE' : full ? 'Q: OVERDRIVE!' : w.combo >= 2 ? `${w.combo} combo · +${Math.round((comboMul(w) - 1) * 100)}% dmg` : 'Heat';
       if (hB.lastElementChild!.textContent !== ht) hB.lastElementChild!.textContent = ht;

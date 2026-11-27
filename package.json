@@ -18,7 +18,9 @@
     "balance": "tsx scripts/balance.ts",
     "play": "vite build && tsx server/index.ts",
     "bundle:server": "node scripts/bundle-server.cjs",
-    "dist:win": "vite build && npm run bundle:server && electron-builder --win nsis --x64"
+    "dist:win": "vite build && npm run bundle:server && electron-builder --win nsis --x64",
+    "playtest": "esbuild tools/playtest/lab.ts --bundle --platform=node --format=esm --outfile=/tmp/ag-lab.mjs --log-level=warning && node /tmp/ag-lab.mjs",
+    "playtest:report": "python3 tools/playtest/report.py"
   },
   "dependencies": {
     "@fontsource/im-fell-english": "5.3.0",
