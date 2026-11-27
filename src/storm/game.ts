@@ -12,7 +12,7 @@ import type { LevelSnap } from '../sim/types';
 import { BASES, CURSE_IDS, EVOLUTIONS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STORM_CARDS } from './cards';
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
-  makeRoute, ROOMS_PER_ACT, spawnAt, type Route, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
+  allDown, makeRoute, ROOMS_PER_ACT, spawnAt, type Route, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
   TWISTS, shieldUp, BOONS, boonChoices, takeBoon, xpNeed, comboMul,
 } from './sim';
 import { T_LAVA } from '../sim/constants';
@@ -217,6 +217,11 @@ class Cinderstorm {
   private famSprites = new Map<string, Sprite>();
   private twistText = '';
   private lastBeat = 0;
+  private coop = false;
+  private inp2: Input = { ...NO_INPUT };
+  private bomb2Queued = false;
+  private surge2Queued = false;
+  private allySprite = new Sprite();
   private route: Route | null = null;
   private anim = new Map<number, { px: number; py: number; lean: number; sq: number }>();
   private recoil = 0;
@@ -285,7 +290,7 @@ class Cinderstorm {
     const wk = weeklyMutators();
     const plain = this.daily || this.weekly;
     this.w = newRun({ seed: this.weekly ? wk.seed : seed, diff: plain ? 'normal' : this.diff, endless: plain || this.rush ? false : this.endless, cls: this.cls, rush: this.rush && !plain,
-      perks: runPerks(), pacts: plain ? [] : [...progress.pacts], mutators: this.weekly ? wk.mutators : [], rescued: [...progress.rescued], bell: this.bellNext && !plain && !this.rush });
+      coop: this.coop && !this.tut, perks: runPerks(), pacts: plain ? [] : [...progress.pacts], mutators: this.weekly ? wk.mutators : [], rescued: [...progress.rescued], bell: this.bellNext && !plain && !this.rush });
     this.rerolls = lvl('reroll');
     this.root.classList.remove('hubmode');
     this.bossesFelled = [];
@@ -302,6 +307,7 @@ class Cinderstorm {
     this.foeSprites.clear();
     this.unitLayer.removeChildren();
     this.unitLayer.addChild(this.playerSprite);
+    if (this.w.ally) { this.allySprite = new Sprite(this.playerSprite.texture); this.allySprite.anchor.copyFrom(this.playerSprite.anchor); this.allySprite.tint = 0x9fffd0; this.unitLayer.addChild(this.allySprite); }
     this.route = makeRoute(this.w);
     this.actCard(() => this.enter());
   }
@@ -407,26 +413,29 @@ class Cinderstorm {
   private readPad() {
     const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : [];
     const gp = [...pads].find((x) => x && x.connected);
+    const two = !!this.w?.ally;
+    if (two) this.inp2 = { ...NO_INPUT, mx: this.inp2.mx, my: this.inp2.my };
     if (!gp) return;
+    const T = two ? this.inp2 : this.inp;
     const dz = (v: number) => (Math.abs(v) < 0.22 ? 0 : v);
     const lx = dz(gp.axes[0] ?? 0), ly = dz(gp.axes[1] ?? 0), rx = dz(gp.axes[2] ?? 0), ry = dz(gp.axes[3] ?? 0);
     const btn = (i: number) => !!gp.buttons[i]?.pressed || (gp.buttons[i]?.value ?? 0) > 0.4;
-    if (lx || ly) { this.inp.left ||= lx < -0.3; this.inp.right ||= lx > 0.3; this.inp.up ||= ly < -0.3; this.inp.down ||= ly > 0.3; }
-    const p = this.w.player;
-    if (rx || ry) { const a = Math.atan2(ry, rx); this.inp.mx = p.x + Math.cos(a) * 200; this.inp.my = p.y + Math.sin(a) * 200; this.padAim = true; }
-    else if (this.padAim) {
+    if (lx || ly) { T.left ||= lx < -0.3; T.right ||= lx > 0.3; T.up ||= ly < -0.3; T.down ||= ly > 0.3; }
+    const p = two ? this.w.ally! : this.w.player;
+    if (rx || ry) { const a = Math.atan2(ry, rx); T.mx = p.x + Math.cos(a) * 200; T.my = p.y + Math.sin(a) * 200; this.padAim = true; }
+    else if (this.padAim || two) {
       // no right stick: aim at the nearest foe
       let best = null as null | { x: number; y: number }, bd = Infinity;
       for (const f of this.w.foes) { const d = Math.hypot(f.x - p.x, f.y - p.y); if (f.state !== 'spawn' && d < bd) { bd = d; best = f; } }
-      if (best) { this.inp.mx = best.x; this.inp.my = best.y; }
+      if (best) { T.mx = best.x; T.my = best.y; }
     }
-    this.inp.fireA ||= btn(7);
-    this.inp.fireB ||= btn(6);
-    this.inp.blink ||= btn(0);
-    this.inp.focus ||= btn(2);
+    T.fireA ||= btn(7);
+    T.fireB ||= btn(6);
+    T.blink ||= btn(0);
+    T.focus ||= btn(2);
     const pressed = (i: number) => btn(i) && !this.padPrev[i];
-    if (pressed(1) || pressed(4) || pressed(5)) this.bombQueued = true;
-    if (pressed(3)) this.surgeQueued = true;
+    if (pressed(1) || pressed(4) || pressed(5)) { if (two) this.bomb2Queued = true; else this.bombQueued = true; }
+    if (pressed(3)) { if (two) this.surge2Queued = true; else this.surgeQueued = true; }
     if (pressed(9)) this.pause();
     this.padPrev = gp.buttons.map((b) => b.pressed);
   }
@@ -453,7 +462,9 @@ class Cinderstorm {
         this.bombQueued = false;
         this.inp.surge = this.surgeQueued;
         this.surgeQueued = false;
-        update(this.w, this.inp);
+        this.inp2.bomb = this.bomb2Queued; this.bomb2Queued = false;
+        this.inp2.surge = this.surge2Queued; this.surge2Queued = false;
+        update(this.w, this.inp, STEP, this.w.ally ? this.inp2 : undefined);
         this.acc -= STEP;
         this.sounds();
       }
@@ -578,7 +589,7 @@ class Cinderstorm {
     const w = this.w;
     music.setIntensity(w.foes.length ? (w.kind === 'boss' ? 1 : 0.7) : 0.15);
     if (this.tut && w.player.dead) { const p = w.player; p.dead = false; p.hp = p.maxHp; p.inv = 2; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0xffb04a, t: w.time, dur: 1.6, text: 'The Hearth catches you' }); }
-    if (w.player.dead && this.mode === 'play') { this.mode = 'dead'; setTimeout(() => this.results(), 1200); return; }
+    if (allDown(w) && this.mode === 'play') { this.mode = 'dead'; setTimeout(() => this.results(), 1200); return; }
     if (this.tut) this.tutTick();
     if (this.mode === 'play' && w.player.hp === 1 && !w.player.dead && now - this.lastBeat > 900) { this.lastBeat = now; play('heartbeat'); }
     if (w.pendingLevels > 0 && this.mode === 'play') { this.levelUp(); return; }
@@ -658,13 +669,21 @@ class Cinderstorm {
 
     // the wizard
     const p = w.player;
+    const al = w.ally;
+    if (al) {
+      this.allySprite.position.set(al.x, al.y + (al.moving ? -Math.abs(Math.sin(now / 80)) * 2 : 0));
+      this.allySprite.scale.set(Math.cos(al.face) < 0 ? -2 : 2, 2);
+      this.allySprite.alpha = al.dead ? 0.35 : al.inv > 0 ? (Math.floor(now / 60) % 2 ? 0.35 : 0.9) : 1;
+      this.allySprite.rotation = al.dead ? Math.PI / 2 : 0;
+    }
     if (w.stats.shots !== this.lastShotsSeen) { this.lastShotsSeen = w.stats.shots; this.recoil = 1; }
     this.recoil *= 0.7;
     const pl = p.moving ? Math.max(-0.14, Math.min(0.14, p.vx * 0.0009)) : 0;
     this.playerSprite.rotation += (pl - this.playerSprite.rotation) * 0.25;
     this.playerSprite.position.set(p.x - Math.cos(p.face) * this.recoil * 2.5, p.y - Math.sin(p.face) * this.recoil * 2.5 + (p.moving ? -Math.abs(Math.sin(now / 80)) * 2 : Math.sin(now / 500) * 0.6));
     this.playerSprite.scale.set((Math.cos(p.face) < 0 ? -2 : 2) * (1 + this.recoil * 0.06), 2 * (1 - this.recoil * 0.05));
-    this.playerSprite.alpha = p.dead ? 0 : p.inv > 0 ? (Math.floor(now / 60) % 2 ? 0.35 : 0.9) : 1;
+    this.playerSprite.alpha = p.dead ? (w.ally ? 0.35 : 0) : p.inv > 0 ? (Math.floor(now / 60) % 2 ? 0.35 : 0.9) : 1;
+    this.playerSprite.rotation = p.dead && w.ally ? Math.PI / 2 : this.playerSprite.rotation;
 
     // foes
     const seen = new Set<number>();
@@ -706,6 +725,8 @@ class Cinderstorm {
     for (const f of w.foes) if (f.boss && f.state !== 'spawn') runeCircle(sg, f.x, f.y, f.r * 2.6, now / 2400, [0x8cff9a, 0xe8e0c8, 0x9fe0ff, 0xffd06a, 0xff3a5a, 0xff8a3a][w.act] ?? 0xffd06a, 0.45);
     const aura = p.boons.aura ?? 0;
     if (aura && !p.dead) { const r = 62 + 6 * aura; sg.circle(p.x, p.y, r).fill({ color: 0xff7a2a, alpha: 0.06 }).stroke({ width: 1.5, color: 0xff9a3a, alpha: 0.3 + 0.1 * Math.sin(now / 200) }); }
+    for (const q of [p, w.ally]) if (q && q.dead && w.ally) { const k = q.reviveT / 2; sg.circle(q.x, q.y, 22).stroke({ width: 2, color: 0x9fffd0, alpha: 0.35 + 0.3 * Math.sin(now / 150) }); if (k > 0) sg.arc(q.x, q.y, 22, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2).stroke({ width: 4, color: 0x9fffd0, alpha: 0.95 }); }
+    if (w.ally && !w.ally.dead) sg.circle(w.ally.x, w.ally.y, w.ally.r + 1).fill({ color: 0xffffff, alpha: 0.8 }).stroke({ width: 1.5, color: 0x2aff9a, alpha: 0.7 });
     if (w.overdrive > 0 && !p.dead) { runeCircle(sg, p.x, p.y + 2, 28, now / 260, 0xffb04a, 0.85); runeCircle(sg, p.x, p.y + 2, 40, -now / 400, 0xffd06a, 0.4 * Math.min(1, w.overdrive)); }
     const casting = this.inp.fireA || this.inp.fireB;
     if (!p.dead && casting) runeCircle(sg, p.x, p.y + 2, 18, -now / 700, CLASSES[w.player.cls].tint === 0xffffff ? 0xb48cff : CLASSES[w.player.cls].tint, 0.5);
@@ -860,6 +881,7 @@ class Cinderstorm {
     const w = this.w, p = w.player;
     const lights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
     if (!p.dead) lights.push({ x: p.x, y: p.y, r: 250 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.14 });
+    if (w.ally && !w.ally.dead) lights.push({ x: w.ally.x, y: w.ally.y, r: 220, a: 1, color: 0xc8ffe0, glow: 0.12 });
     if (!p.dead && w.overdrive > 0) lights.push({ x: p.x, y: p.y, r: 140, a: 1, color: 0xffa040, glow: 0.3 });
     if (w.stats.shots !== this.lastShots) { this.lastShots = w.stats.shots; this.muzzle = 1; }
     this.muzzle *= 0.75;
@@ -960,10 +982,11 @@ class Cinderstorm {
     // a running twist shows its clock
     const tw = w.twist && !w.cleared ? (w.twist === 'siege' && w.twistT > 0 ? `Hold the line: ${Math.ceil(w.twistT)}s` : w.twist === 'thief' && w.foes.some((f) => f.type === 'thief' && f.state !== 'spawn') ? `Catch the thief: ${Math.max(0, Math.ceil(w.twistT))}s` : w.twist === 'bounty' && w.bountyId ? `Bounty: ${Math.max(0, Math.ceil(w.bountyT))}s` : w.twist === 'gauntlet' && w.waves.length ? `Gauntlet: next wave in ${Math.max(0, Math.ceil(w.twistT))}s` : TWISTS[w.twist].name) : '';
     if (tw !== this.twistText) { this.twistText = tw; const el = this.root.querySelector<HTMLElement>('.stwist'); if (el) { el.textContent = tw; el.style.display = tw && this.mode === 'play' ? '' : 'none'; } }
-    const key = `${p.hp}|${p.maxHp}|${p.shield}|${Math.round(p.mana)}|${p.bombs}|${p.cinders}|${Math.round(p.blinkCd * 10)}|${Math.round(p.cdA * 20)}|${Math.round(p.cdB * 20)}|${w.room}|${w.act}|${w.spells[0].join()}|${w.spells[1].join()}|${Math.floor(w.score / 10)}|${p.relics.length}`;
+    const key = `${w.ally ? `${w.ally.hp}${w.ally.dead}|` : ''}${p.hp}|${p.maxHp}|${p.shield}|${Math.round(p.mana)}|${p.bombs}|${p.cinders}|${Math.round(p.blinkCd * 10)}|${Math.round(p.cdA * 20)}|${Math.round(p.cdB * 20)}|${w.room}|${w.act}|${w.spells[0].join()}|${w.spells[1].join()}|${Math.floor(w.score / 10)}|${p.relics.length}`;
     if (key !== this.hudKey) {
       this.hudKey = key;
-      this.hud.innerHTML = `<div class="shearts">${Array.from({ length: p.maxHp }, (_, i) => `<span class="${i < p.hp ? 'on' : ''}">♥</span>`).join('')}${p.shield ? '<span class="ward" title="Ward: blocks one hit">◈</span>' : ''}</div>
+      const al2 = w.ally;
+      this.hud.innerHTML = `<div class="shearts">${Array.from({ length: p.maxHp }, (_, i) => `<span class="${i < p.hp ? 'on' : ''}">♥</span>`).join('')}${p.shield ? '<span class="ward" title="Ward: blocks one hit">◈</span>' : ''}</div>${al2 ? `<div class="shearts p2" title="Player two">${Array.from({ length: al2.maxHp }, (_, i) => `<span class="${i < al2.hp ? 'on' : ''}">♥</span>`).join('')}${al2.dead ? '<b> down: stand by them to revive</b>' : ''}</div>` : ''}
         <div class="smana"><i style="width:${Math.round((p.mana / p.maxMana) * 100)}%"></i><b>${Math.floor(p.mana)}</b></div>
         <div class="sblink ${p.blinkCd > 0 ? '' : 'ready'}" title="Blink (Space)">Blink</div>
         <div class="sbomb ${p.bombs ? 'ready' : ''}" title="Ash Nova (F, E or middle click): clears every foe shot">✸ ${p.bombs}</div>
@@ -1007,6 +1030,7 @@ class Cinderstorm {
       <h3>How fierce?</h3>
       <div class="sdiff">${(Object.keys(DIFFICULTY) as Difficulty[]).map((d) => `<button type="button" class="btn ${this.diff === d ? 'ember' : ''}" data-d="${d}"><b>${DIFFICULTY[d].name}</b><small>${esc(DIFFICULTY[d].desc)}</small>${b[d] ? `<small>Best: ${b[d]!.toLocaleString()}</small>` : ''}</button>`).join('')}</div>
       <div class="row"><span class="k">Brightness:</span>${(Object.keys(BRIGHT) as Bright[]).map((b) => `<button type="button" class="btn small ${this.bright === b ? 'ember' : ''}" data-bright="${b}">${BRIGHT[b].name}</button>`).join('')}</div>
+ <label class="sendless"><input type="checkbox" id="sCoop" ${this.coop ? 'checked' : ''}> Two players, one screen: player two plays on a controller (left stick to move, right stick or auto-aim, triggers to cast, A blink, B Nova, Y Overdrive). Down? Your partner revives you by standing beside you.</label>
       <label class="sendless"><input type="checkbox" id="sEndless" ${this.endless ? 'checked' : ''}> The Abyss: after the Hollow King, loop back to the start, harder each time, for as long as you last.${this.best.abyss ? ` (Deepest: Abyss ${this.best.abyss})` : ''}</label>
       <div class="row"><button type="button" class="btn ember" data-s="go">Begin</button><button type="button" class="btn" data-s="daily">Daily storm (${today()})${this.best.daily?.[today()] ? ` · best ${this.best.daily[today()].toLocaleString()}` : ''}</button><button type="button" class="btn" data-s="rush">Boss rush</button><button type="button" class="btn" data-s="ach">Achievements ${this.ach.length}/${ACH.length}</button><button type="button" class="btn" data-s="beasts">Bestiary ${this.seen.filter((x) => FOE_INFO[x]).length}/${Object.keys(FOE_INFO).length}</button><button type="button" class="btn" data-s="home">Back to the Hearth</button></div>`);
     this.on('[data-s="home"]', () => this.sanctuary());
@@ -1017,6 +1041,7 @@ class Cinderstorm {
     this.on('[data-s="beasts"]', () => this.bestiary());
     this.on('[data-s="ach"]', () => this.achievements());
     this.on('[data-d]', (el) => { this.diff = el.dataset.d as Difficulty; this.menu(); });
+    this.panel.querySelector<HTMLInputElement>('#sCoop')!.addEventListener('change', (e) => { this.coop = (e.target as HTMLInputElement).checked; });
     this.panel.querySelector<HTMLInputElement>('#sEndless')!.addEventListener('change', (e) => { this.endless = (e.target as HTMLInputElement).checked; });
     this.on('[data-s="go"]', () => { this.daily = false; this.rush = false; this.weekly = false; this.startRun(); });
   }
@@ -1660,7 +1685,7 @@ class Cinderstorm {
     const ash = this.bank();
     const st = w.stats;
     const act = ACTS[w.act];
-    const won = w.won && !w.player.dead && !abandoned;
+    const won = w.won && !allDown(w) && !abandoned;
     this.mode = won ? 'won' : 'dead';
     this.show(`<h2>${won ? `${bossOf(w).name} falls` : abandoned ? 'You walk out of the fire' : 'Your light goes out'}</h2>
       <p>${won ? 'The Reach goes quiet. Your grimoire is still warm.' : `${abandoned ? 'You left' : 'You fell'} in ${esc(w.kind === 'boss' ? `the lair of ${bossOf(w).name}` : act.name)}${w.loop ? `, ${w.loop} loop${w.loop > 1 ? 's' : ''} into the Abyss` : ''}.`}</p>

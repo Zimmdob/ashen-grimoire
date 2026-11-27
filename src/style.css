@@ -639,3 +639,7 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .snode.boss { border-color: #ff4a4a; color: #ff9a8a; }
 .storm .snode.rescue i { color: #9fe0ff; }
 @keyframes snode { from { box-shadow: 0 0 6px rgba(255, 140, 50, 0.3); } to { box-shadow: 0 0 18px rgba(255, 160, 60, 0.7); } }
+.storm .shearts.p2 span.on { color: #9fffd0; text-shadow: 0 0 6px #2aff9a; }
+.storm .shearts.p2 b { color: #9fffd0; font-weight: normal; font-size: 0.85em; animation: sheatpulse 0.6s ease-in-out infinite alternate; }
+.storm .shud .shearts.p2 { position: absolute; left: 8px; top: -30px; padding: 2px 8px; background: rgba(8, 6, 10, 0.8); border: 1px solid rgba(159, 255, 208, 0.4); white-space: nowrap; }
+.storm .shud .shearts.p2::before { content: 'P2 '; color: #9fffd0; font: 14px VT323, monospace; }

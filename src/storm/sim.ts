@@ -81,6 +81,8 @@ export interface Player {
   cls: ClassId; speedMul: number; dmgBonus: number; stillT: number; wardT: number;
   /** Experience within this run: every level offers a boon. */
   xp: number; level: number; boons: Record<string, number>;
+  /** Co-op: time a partner has spent reviving you while you're down. */
+  reviveT: number;
 }
 // ------------------------------------------------------------------ the five wizards
 export type ClassId = 'spellwright' | 'pyromancer' | 'frostbinder' | 'graveknight' | 'stormcaller' | 'hollowheir';
@@ -139,6 +141,8 @@ export interface StormWorld {
   scripted: boolean;
   /** Boon and relic bookkeeping. */
   barrierT: number; bloodKills: number; blinkBuff: number; bountyId: number; bountyT: number;
+  /** Local co-op: the second Kindled (shares relics, boons, level and grimoire; has their own hearts and mana). */
+  ally: Player | null;
 }
 export interface Perks { hearts: number; dmg: number; mana: number; bombs: number; xp: number; cinders: number; choices: number; revive: boolean; relic: boolean; speed: number; graze: number }
 export const NO_PERKS: Perks = { hearts: 0, dmg: 0, mana: 0, bombs: 0, xp: 0, cinders: 0, choices: 3, revive: false, relic: false, speed: 0, graze: 0 };
@@ -460,7 +464,7 @@ function freeSpot(w: StormWorld, r: number, farFrom: { x: number; y: number }, m
 }
 
 // ------------------------------------------------------------------ run setup
-export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId; rush?: boolean; perks?: Perks; pacts?: string[]; mutators?: string[]; rescued?: string[]; bell?: boolean }
+export interface RunOpts { seed: number; diff?: Difficulty; endless?: boolean; cls?: ClassId; rush?: boolean; perks?: Perks; pacts?: string[]; mutators?: string[]; rescued?: string[]; bell?: boolean; coop?: boolean }
 export function newRun(seed: number | RunOpts): StormWorld {
   const o: RunOpts = typeof seed === 'number' ? { seed } : seed;
   const diff = o.diff ?? 'normal';
@@ -469,18 +473,19 @@ export function newRun(seed: number | RunOpts): StormWorld {
   const hearts = DIFFICULTY[diff].hearts + C.hearts;
   const w: StormWorld = {
     seed: o.seed | 0, time: 0, map: [], diff, endless: !!o.endless, loop: 0, act: 0, room: 0, kind: 'fight',
-    player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0, xp: 0, level: 1, boons: {} },
+    player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0, xp: 0, level: 1, boons: {}, reviveT: 0 },
     foes: [], bullets: [], hazards: [], pickups: [], fx: [], spells: [[...C.spells[0]], [...C.spells[1]]], waves: [], waveDelay: 0, cleared: false, nextId: 1, sounds: [], echoes: [],
     score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0, overdrives: 0, bounties: 0, thieves: 0, duels: 0, sieges: 0, gauntlets: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
     encounter: '', twist: null, twistT: 0, lastTwist: null, layout: 'groves',
     heat: 0, combo: 0, comboT: 0, bestCombo: 0, overdrive: 0, pendingLevels: 0, waveClock: 0, auraT: 0, lastKill: 0,
-    perks: { ...NO_PERKS, ...(o.perks ?? {}) }, pacts: [...(o.pacts ?? [])], mutators: [...(o.mutators ?? [])], rescued: [...(o.rescued ?? [])], rescue: null, bell: !!o.bell, truePath: false, phoenixUsed: false, scripted: false, barrierT: 0, bloodKills: 0, blinkBuff: 0, bountyId: 0, bountyT: 0,
+    perks: { ...NO_PERKS, ...(o.perks ?? {}) }, pacts: [...(o.pacts ?? [])], mutators: [...(o.mutators ?? [])], rescued: [...(o.rescued ?? [])], rescue: null, bell: !!o.bell, truePath: false, phoenixUsed: false, scripted: false, barrierT: 0, bloodKills: 0, blinkBuff: 0, bountyId: 0, bountyT: 0, ally: null,
   };
   addRelic(w, C.relic);
   const pk = w.perks, p = w.player;
   p.maxHp = Math.max(1, p.maxHp + pk.hearts); p.hp = p.maxHp;
   p.dmgBonus += pk.dmg; p.bombs += pk.bombs; p.speedMul *= 1 + pk.speed;
   if (pk.relic) { const r = relicChoices(w, 1)[0]; if (r) addRelic(w, r); }
+  if (o.coop) w.ally = { ...p, x: p.x + 40, relics: p.relics, boons: p.boons };
   enterRoom(w, 1, 'fight');
   return w;
 }
@@ -692,7 +697,7 @@ const dens = (w: StormWorld, n: number) => Math.max(1, Math.round(n * DIFFICULTY
 
 /** Fire one of a foe's patterns. */
 function runPat(w: StormWorld, f: Foe, pt: Pat) {
-  const p = w.player;
+  const p = targetOf(w, f);
   switch (pt.kind) {
     case 'ring': {
       const n = dens(w, pt.n);
@@ -855,9 +860,34 @@ export function onBeat(w: StormWorld, step: number) {
 }
 
 // ------------------------------------------------------------------ one tick
-export function update(w: StormWorld, inp: Input, dt = STEP) {
+/** Swap the two Kindled, so the same code can run for either. */
+const swapAlly = (w: StormWorld) => { const a = w.ally!; w.ally = w.player; w.player = a; };
+/** Everyone is down: the run is over. */
+export const allDown = (w: StormWorld) => w.player.dead && (!w.ally || w.ally.dead);
+/** The Kindled a foe goes for: the nearer one still standing. */
+function targetOf(w: StormWorld, f: { x: number; y: number }): Player {
+  const a = w.ally, p = w.player;
+  if (!a || a.dead) return p;
+  if (p.dead) return a;
+  return Math.hypot(a.x - f.x, a.y - f.y) < Math.hypot(p.x - f.x, p.y - f.y) ? a : p;
+}
+/** Hurt whichever Kindled the test picks out. */
+function hurtWhere(w: StormWorld, hit: (q: Player) => boolean) {
+  if (!w.player.dead && hit(w.player)) hurtPlayer(w);
+  if (w.ally && !w.ally.dead && hit(w.ally)) { swapAlly(w); hurtPlayer(w); swapAlly(w); }
+}
+
+export function update(w: StormWorld, inp: Input, dt = STEP, inp2?: Input) {
   w.time += dt;
   w.sounds.length = 0;
+  controlPlayer(w, inp, dt);
+  if (w.ally && inp2) { swapAlly(w); controlPlayer(w, inp2, dt); swapAlly(w); }
+  if (inp2?.surge) inp = { ...inp, surge: true };
+  const p = w.player;
+  stepRest(w, inp, dt, p);
+}
+
+function controlPlayer(w: StormWorld, inp: Input, dt: number) {
   const p = w.player;
   aimPt.x = inp.mx; aimPt.y = inp.my;
   const tile = tileAt(w, p.x, p.y);
@@ -935,6 +965,9 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       w.echoes.splice(i, 1);
     }
   }
+}
+
+function stepRest(w: StormWorld, inp: Input, dt: number, p: Player) {
 
   // the combo fades if you stop killing; Heat cools slowly
   if (w.comboT > 0) { w.comboT -= dt; if (w.comboT <= 0) w.combo = 0; }
@@ -1072,7 +1105,8 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     const k = (f.slow > 0 ? 0.5 : 1) * (f.affix === 'enraged' && f.hp < f.maxHp * 0.5 ? 1.6 : 1);
     // never stay wedged in a wall (a charge or a pull can push a foe into one)
     if (blocked(w, f.x, f.y, f.r * 0.8)) { const to = freeSpot(w, f.r, { x: -999, y: -999 }, 0); const best = [to]; for (let i = 0; i < 8; i++) { const c = freeSpot(w, f.r, { x: -999, y: -999 }, 0); if (Math.hypot(c.x - f.x, c.y - f.y) < Math.hypot(best[0].x - f.x, best[0].y - f.y)) best[0] = c; } f.x = best[0].x; f.y = best[0].y; }
-    const dx = p.x - f.x, dy = p.y - f.y, d = Math.hypot(dx, dy) || 1;
+    const tp = targetOf(w, f);
+    const dx = tp.x - f.x, dy = tp.y - f.y, d = Math.hypot(dx, dy) || 1;
     f.t += dt * k;
     if (f.state === 'sleep') {
       // gargoyles wake when you come close (or hurt them)
@@ -1124,7 +1158,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
         case 'still': case 'sleep': break;
       }
     }
-    if (!p.dead && Math.hypot(f.x - p.x, f.y - p.y) < f.r + p.r - 1) hurtPlayer(w);
+    hurtWhere(w, (q) => Math.hypot(f.x - q.x, f.y - q.y) < f.r + q.r - 1);
   }
 
   // hazards: pools and beams
@@ -1133,19 +1167,19 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     h.t += dt;
     if (h.kind === 'spikes') {
       // up for a moment every few seconds (after a warning)
-      if (spikesUp(h, w.time) && Math.abs(p.x - h.x) < h.r && Math.abs(p.y - h.y) < h.r) hurtPlayer(w);
+      if (spikesUp(h, w.time)) hurtWhere(w, (q) => Math.abs(q.x - h.x) < h.r && Math.abs(q.y - h.y) < h.r);
       continue;
     }
     if (h.kind === 'beam') {
       if (h.t < h.warn) continue;
       if (h.t > h.warn + h.life) { w.hazards.splice(i, 1); continue; }
-      const ux = Math.cos(h.ang), uy = Math.sin(h.ang), px = p.x - h.x, py = p.y - h.y, along = px * ux + py * uy;
-      if (along > 0 && Math.abs(px * uy - py * ux) < h.r + p.r - 2) hurtPlayer(w);
+      const ux = Math.cos(h.ang), uy = Math.sin(h.ang);
+      hurtWhere(w, (q) => { const px = q.x - h.x, py = q.y - h.y; return px * ux + py * uy > 0 && Math.abs(px * uy - py * ux) < h.r + q.r - 2; });
     } else {
       if (h.t > h.warn + h.life) { w.hazards.splice(i, 1); continue; }
       if (h.t < h.warn) continue;
       if (h.warn && h.t - dt < h.warn) { w.fx.push({ kind: 'boom', x: h.x, y: h.y, color: h.color, t: w.time, dur: 0.4, r: h.r }); w.sounds.push('boom'); }
-      if (Math.hypot(p.x - h.x, p.y - h.y) < h.r * 0.8 + p.r) hurtPlayer(w);
+      hurtWhere(w, (q) => Math.hypot(q.x - h.x, q.y - h.y) < h.r * 0.8 + q.r);
     }
   }
 
@@ -1283,21 +1317,38 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
   for (let i = w.pickups.length - 1; i >= 0; i--) {
     const k = w.pickups[i];
     k.t += dt;
-    const dd = Math.hypot(p.x - k.x, p.y - k.y);
+    const q = targetOf(w, k);
+    const dd = Math.hypot(q.x - k.x, q.y - k.y);
     let sp = 0;
-    if (dd < reach || k.t > 6) { sp = Math.min(1100, 300 + k.t * 80); k.vx = ((p.x - k.x) / (dd || 1)) * sp; k.vy = ((p.y - k.y) / (dd || 1)) * sp; }
+    if (dd < reach || k.t > 6) { sp = Math.min(1100, 300 + k.t * 80); k.vx = ((q.x - k.x) / (dd || 1)) * sp; k.vy = ((q.y - k.y) / (dd || 1)) * sp; }
     else { k.vx *= 0.9; k.vy *= 0.9; }
     // a fast pull lands on you instead of overshooting
-    if (dd < 14 || dd <= sp * dt) { k.x = p.x; k.y = p.y; } else { k.x += k.vx * dt; k.y += k.vy * dt; }
-    if ((dd < 14 || dd <= sp * dt) && !p.dead) {
+    if (dd < 14 || dd <= sp * dt) { k.x = q.x; k.y = q.y; } else { k.x += k.vx * dt; k.y += k.vy * dt; }
+    if ((dd < 14 || dd <= sp * dt) && !q.dead) {
       if (k.kind === 'cinder') p.cinders += k.n;
       else if (k.kind === 'xp') {
         p.xp += k.n * (has(w, 'lantern') ? 1.3 : 1) * (1 + 0.2 * bn(w, 'magnet')) * (1 + w.perks.xp) * (mut(w, 'plenty') ? 2 : 1);
         while (p.xp >= xpNeed(p.level)) { p.xp -= xpNeed(p.level); p.level++; w.pendingLevels++; if (has(w, 'quill') && p.level % 3 === 0) p.hp = Math.min(p.maxHp, p.hp + 1); w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0x9fffd0, t: w.time, dur: 1.2, text: 'Level up!' }); w.fx.push({ kind: 'ring', x: p.x, y: p.y, color: 0x9fffd0, t: w.time, dur: 0.5, r: 60 }); w.sounds.push('heal'); }
-      } else p.hp = Math.min(p.maxHp, p.hp + 1);
+      } else q.hp = Math.min(q.maxHp, q.hp + 1);
       if (k.kind !== 'xp') w.sounds.push(k.kind === 'heart' ? 'heal' : 'click');
       w.pickups.splice(i, 1);
     }
+  }
+
+  // the second Kindled: shots hit and graze them too
+  const al = w.ally;
+  if (al && !al.dead) for (let i = w.bullets.length - 1; i >= 0; i--) {
+    const b = w.bullets[i];
+    if (b.friendly || b.wake > 0) continue;
+    const dd = Math.hypot(al.x - b.x, al.y - b.y);
+    if (dd < al.r + b.r * 0.7) { if (al.inv <= 0) { w.bullets.splice(i, 1); swapAlly(w); hurtPlayer(w); swapAlly(w); } }
+    else if (!b.grazed && dd < al.r + b.r + 16 && al.inv <= 0) { b.grazed = true; w.stats.grazes++; w.heat = Math.min(100, w.heat + 1.6); al.mana = Math.min(al.maxMana, al.mana + 3); }
+  }
+  // a Kindled who is down gets back up if their partner stands beside them for two seconds
+  if (al) for (const [down, up] of [[p, al], [al, p]] as const) {
+    if (!down.dead || up.dead) { down.reviveT = 0; continue; }
+    if (Math.hypot(down.x - up.x, down.y - up.y) < 40) { down.reviveT += dt; if (down.reviveT >= 2) { down.dead = false; down.hp = 2; down.inv = 2; down.reviveT = 0; w.fx.push({ kind: 'text', x: down.x, y: down.y - 26, color: 0x9fffd0, t: w.time, dur: 1.4, text: 'Back on your feet!' }); w.fx.push({ kind: 'ring', x: down.x, y: down.y, color: 0x9fffd0, t: w.time, dur: 0.6, r: 50 }); w.sounds.push('heal'); } }
+    else down.reviveT = Math.max(0, down.reviveT - dt);
   }
 
   // the fallen
@@ -1312,9 +1363,10 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     for (const f of w.foes) w.fx.push({ kind: 'die', x: f.x, y: f.y, color: 0xff8a3a, t: w.time, dur: 0.5, r: f.r, src: f.type });
     w.foes = [];
   }
-  if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead && !w.scripted && !(w.twist === 'siege' && w.twistT > 0)) {
+  if (!w.foes.length && !w.waves.length && !w.cleared && !allDown(w) && !w.scripted && !(w.twist === 'siege' && w.twistT > 0)) {
     w.cleared = true;
     w.stats.rooms++;
+    for (const q of [p, w.ally]) if (q && q.dead) { q.dead = false; q.hp = 1; q.inv = 1.5; }
     if (w.twist === 'gauntlet') { w.stats.gauntlets++; p.cinders += 40; }
     if (w.twist === 'siege') w.stats.sieges++;
     if (w.twist === 'duel') w.stats.duels++;

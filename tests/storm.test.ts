@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spellStats } from '../src/storm/cards';
-import { ACTS, addRelic, boonChoices, CAPTIVES, doorChoices, enterRoom, isWall, NO_PERKS, takeBoon, xpNeed, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
+import { ACTS, addRelic, allDown, boonChoices, CAPTIVES, doorChoices, enterRoom, isWall, NO_PERKS, takeBoon, xpNeed, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
 import { RELIC_IDS, STORM_CARDS, BASES, MODS } from '../src/storm/cards';
 
 /** A bot that can't be hurt: aims at the nearest foe and fires both spells, circling to keep moving. */
@@ -339,5 +339,26 @@ describe('cinderstorm: the Last Hearth', () => {
     expect(w.waves[0][0].type).toBe('unwritten');
     play(w, 60 * 400);
     expect(w.won).toBe(true);
+  });
+});
+
+describe('cinderstorm: two players', () => {
+  it('a second Kindled fights alongside; a fallen partner is revived; the run ends only when both are down', () => {
+    const w = newRun({ seed: 6, coop: true });
+    expect(w.ally).not.toBeNull();
+    expect(w.ally!.relics).toBe(w.player.relics);
+    w.spells = [['ember', 'split', 'seek', 'haste'], ['bone', 'pierce', 'echo']];
+    // player two walks right; their own position changes
+    const x0 = w.ally!.x;
+    for (let i = 0; i < 30; i++) update(w, NO_INPUT, 1 / 60, { ...NO_INPUT, right: true });
+    expect(w.ally!.x).toBeGreaterThan(x0 + 20);
+    // down player one: the run goes on; player two stands beside them and revives them
+    w.player.dead = true; w.player.hp = 0;
+    expect(allDown(w)).toBe(false);
+    w.ally!.x = w.player.x + 10; w.ally!.y = w.player.y;
+    for (let i = 0; i < 60 * 2.2; i++) { w.ally!.inv = 1; update(w, NO_INPUT, 1 / 60, NO_INPUT); w.ally!.x = w.player.x + 10; w.ally!.y = w.player.y; }
+    expect(w.player.dead).toBe(false);
+    w.player.dead = true; w.ally!.dead = true;
+    expect(allDown(w)).toBe(true);
   });
 });
