@@ -8,8 +8,8 @@ export const MW = 32, MH = 20;
 export const AW = MW * TILE, AH = MH * TILE;
 export const STEP = 1 / 60;
 
-export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; mx: number; my: number; fireA: boolean; fireB: boolean; blink: boolean; focus: boolean; bomb: boolean }
-export const NO_INPUT: Input = { up: false, down: false, left: false, right: false, mx: 0, my: 0, fireA: false, fireB: false, blink: false, focus: false, bomb: false };
+export interface Input { up: boolean; down: boolean; left: boolean; right: boolean; mx: number; my: number; fireA: boolean; fireB: boolean; blink: boolean; focus: boolean; bomb: boolean; surge?: boolean }
+export const NO_INPUT: Input = { up: false, down: false, left: false, right: false, mx: 0, my: 0, fireA: false, fireB: false, blink: false, focus: false, bomb: false, surge: false };
 
 // ------------------------------------------------------------------ difficulty
 export type Difficulty = 'gentle' | 'normal' | 'nightmare';
@@ -70,13 +70,15 @@ export interface Hazard {
   /** Beams warn (harmless, a thin line) before they fire. */
   warn: number; life: number; t: number; color: number;
 }
-export interface Pickup { kind: 'cinder' | 'heart'; x: number; y: number; vx: number; vy: number; n: number; t: number }
+export interface Pickup { kind: 'cinder' | 'heart' | 'xp'; x: number; y: number; vx: number; vy: number; n: number; t: number }
 export interface Fx { kind: 'hit' | 'die' | 'blink' | 'spawn' | 'hurt' | 'burst' | 'ring' | 'nova' | 'graze' | 'boom' | 'text' | 'phase'; x: number; y: number; color: number; t: number; dur: number; r?: number; text?: string; src?: string }
 export interface Player {
   x: number; y: number; vx: number; vy: number; r: number; hp: number; maxHp: number; mana: number; maxMana: number;
   inv: number; blinkCd: number; cdA: number; cdB: number; face: number; moving: boolean; dead: boolean;
   bombs: number; cinders: number; relics: string[]; shield: boolean; revived: boolean; volleys: number; killsSince: number;
   cls: ClassId; speedMul: number; dmgBonus: number; stillT: number; wardT: number;
+  /** Experience within this run: every level offers a boon. */
+  xp: number; level: number; boons: Record<string, number>;
 }
 // ------------------------------------------------------------------ the five wizards
 export type ClassId = 'spellwright' | 'pyromancer' | 'frostbinder' | 'graveknight' | 'stormcaller' | 'hollowheir';
@@ -115,6 +117,49 @@ export interface StormWorld {
   twist: Twist | null; twistT: number; lastTwist: Twist | null;
   /** The arena's shape. */
   layout: Layout;
+  /** Heat builds with quick kills and grazes; a full bar unlocks Overdrive. */
+  heat: number; combo: number; comboT: number; bestCombo: number;
+  /** Seconds of Overdrive left. */
+  overdrive: number;
+  /** Level-ups waiting for the player to choose a boon. */
+  pendingLevels: number;
+  /** How long the next wave has been waiting (it won't wait for the last straggler). */
+  waveClock: number; auraT: number;
+}
+
+// ------------------------------------------------------------------ boons: level-up upgrades within a run
+export const BOONS: Record<string, { name: string; desc: string; icon: string; max: number }> = {
+  might: { name: 'Might', desc: '+15% spell damage.', icon: '⚔', max: 6 },
+  haste: { name: 'Quickening', desc: '+12% casting speed.', icon: '⌁', max: 6 },
+  volley: { name: 'Volley', desc: 'Your first spell fires one more shot.', icon: '⋔', max: 3 },
+  velocity: { name: 'Velocity', desc: 'Shots fly 15% faster and farther.', icon: '➶', max: 4 },
+  girth: { name: 'Greater bolts', desc: 'Shots are 20% bigger.', icon: '●', max: 4 },
+  pierce: { name: 'Piercing', desc: 'Shots pass through one more foe.', icon: '➹', max: 3 },
+  crit: { name: 'Keen eye', desc: '+10% chance for a shot to deal triple damage.', icon: '✦', max: 5 },
+  swift: { name: 'Fleet foot', desc: '+8% move speed.', icon: '»', max: 4 },
+  vigor: { name: 'Vigor', desc: '+1 heart, and heal one.', icon: '♥', max: 3 },
+  blink: { name: 'Shadowstep', desc: 'Blink recharges 15% faster.', icon: '◌', max: 4 },
+  magnet: { name: 'Lodestone', desc: 'Pick things up from farther away.', icon: '⊙', max: 3 },
+  frenzy: { name: 'Frenzy', desc: 'Heat builds 35% faster, so Overdrive comes sooner.', icon: '🔥', max: 4 },
+  echo: { name: 'Resonance', desc: '+10% chance a volley echoes a moment later.', icon: '≋', max: 4 },
+  aura: { name: 'Cinder aura', desc: 'Burns foes that come close to you.', icon: '☀', max: 5 },
+  wellspring: { name: 'Wellspring', desc: '+25% mana regeneration.', icon: '◈', max: 4 },
+};
+const bn = (w: StormWorld, id: string) => w.player.boons[id] ?? 0;
+export const xpNeed = (level: number) => 8 + level * 6;
+/** Three boons to choose from (never one that's maxed out). */
+export function boonChoices(w: StormWorld): string[] {
+  const open = Object.keys(BOONS).filter((id) => bn(w, id) < BOONS[id].max && !(id === 'vigor' && w.player.maxHp >= 9));
+  const out: string[] = [];
+  while (out.length < 3 && open.length) out.push(open.splice(Math.floor(rand(w) * open.length), 1)[0]);
+  return out;
+}
+export function takeBoon(w: StormWorld, id: string) {
+  const p = w.player;
+  p.boons[id] = bn(w, id) + 1;
+  if (id === 'swift') p.speedMul *= 1.08;
+  if (id === 'vigor') { p.maxHp++; p.hp = Math.min(p.maxHp, p.hp + 1); }
+  w.pendingLevels = Math.max(0, w.pendingLevels - 1);
 }
 
 // ------------------------------------------------------------------ battle variety
@@ -392,10 +437,11 @@ export function newRun(seed: number | RunOpts): StormWorld {
   const hearts = DIFFICULTY[diff].hearts + C.hearts;
   const w: StormWorld = {
     seed: o.seed | 0, time: 0, map: [], diff, endless: !!o.endless, loop: 0, act: 0, room: 0, kind: 'fight',
-    player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0 },
+    player: { x: AW / 2, y: AH / 2, vx: 0, vy: 0, r: 5, hp: hearts, maxHp: hearts, mana: 100, maxMana: 100, inv: 0, blinkCd: 0, cdA: 0, cdB: 0, face: 0, moving: false, dead: false, bombs: 2, cinders: 0, relics: [], shield: false, revived: false, volleys: 0, killsSince: 0, cls, speedMul: C.speed, dmgBonus: 0, stillT: 0, wardT: 0, xp: 0, level: 1, boons: {} },
     foes: [], bullets: [], hazards: [], pickups: [], fx: [], spells: [[...C.spells[0]], [...C.spells[1]]], waves: [], waveDelay: 0, cleared: false, nextId: 1, sounds: [], echoes: [],
     score: 0, stats: { kills: 0, shots: 0, hitsTaken: 0, grazes: 0, bosses: 0, rooms: 0, flawless: 0, bestNova: 0, secret: 0 }, bossHits: 0, won: false, rush: !!o.rush, familiars: [],
     encounter: '', twist: null, twistT: 0, lastTwist: null, layout: 'groves',
+    heat: 0, combo: 0, comboT: 0, bestCombo: 0, overdrive: 0, pendingLevels: 0, waveClock: 0, auraT: 0,
   };
  addRelic(w, C.relic);
   enterRoom(w, 1, 'fight');
@@ -416,6 +462,7 @@ export function enterRoom(w: StormWorld, room: number, kind?: RoomKind, twist?: 
   if (w.kind === 'boss') w.room = ROOMS_PER_ACT + 1;
   w.map = makeArena(w, w.kind === 'boss');
   w.foes = []; w.bullets = []; w.hazards = []; w.pickups = []; w.echoes = []; w.cleared = false;
+  w.combo = 0; w.comboT = 0; w.overdrive = 0; w.waveClock = 0;
   const p = w.player;
   p.x = AW / 2; p.y = AH - TILE * 3.5; p.vx = p.vy = 0; p.inv = 1.2;
   p.mana = p.maxMana;
@@ -469,7 +516,9 @@ function applyTwist(w: StormWorld, t: Twist) {
   switch (t) {
     case 'horde': w.waves = w.waves.map((l) => [...l, ...l]); break;
     case 'duel': {
-      const type = pick(w, act.tough.length ? act.tough : act.roster);
+      // a duel is one-on-one: no summoners hiding behind their minions
+      const pool = [...act.tough, ...act.roster].filter((t) => t !== 'necro');
+      const type = pick(w, pool.length ? pool : act.roster);
       w.waves = [[{ type, elite: true }]];
       w.encounter = `${pick(w, CHAMP_NAMES)} ${pick(w, CHAMP_TITLES)}`;
       break;
@@ -518,7 +567,7 @@ function spawnFoe(w: StormWorld, type: FoeType, elite: boolean, at?: { x: number
   const boss = BOSSES[type];
   const fd = FOES[type];
   const base = boss ?? fd!;
-  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * (elite ? 3.2 : 1) * (boss ? 1 : w.twist === 'horde' ? 0.5 : w.twist === 'champions' ? 0.6 : w.twist === 'duel' ? 1.8 : 1);
+  const hpMul = DIFFICULTY[w.diff].hp * depth(w) * (elite ? 3.2 : 1) * (boss ? 0.72 : w.twist === 'horde' ? 0.5 : w.twist === 'champions' ? 0.6 : w.twist === 'duel' ? 1.4 : 1);
   const r = base.r * (elite ? 1.3 : 1);
   const p = at ?? (boss ? { x: AW / 2, y: TILE * 5 } : freeSpot(w, r, w.player, 230, true));
   const f: Foe = {
@@ -660,7 +709,10 @@ function runPat(w: StormWorld, f: Foe, pt: Pat) {
 function fireSpell(w: StormWorld, slot: 0 | 1, ang: number, s: SpellStats, isEcho = false) {
   const p = w.player;
   const dmgMul = (has(w, 'glass') ? 1.6 : 1) * (has(w, 'overflow') && p.mana > p.maxMana * 0.8 ? 1.35 : 1) * (1 + p.dmgBonus)
-    * (has(w, 'dancer') && p.moving ? 1.25 : 1) * (has(w, 'stillwater') && p.stillT > 0.6 ? 1.6 : 1);
+    * (has(w, 'dancer') && p.moving ? 1.25 : 1) * (has(w, 'stillwater') && p.stillT > 0.6 ? 1.6 : 1)
+    * (1 + 0.15 * bn(w, 'might')) * comboMul(w) * (w.overdrive > 0 ? 1.5 : 1);
+  if (slot === 0 && bn(w, 'volley')) { s.count += bn(w, 'volley'); if (!s.spread) s.spread = 0.2; }
+  s.speed *= 1 + 0.15 * bn(w, 'velocity'); s.size *= 1 + 0.2 * bn(w, 'girth'); s.pierce += bn(w, 'pierce');
   const n = s.count;
   const dirs = s.twin ? [ang, ang + Math.PI] : [ang];
   for (const base of dirs) for (let i = 0; i < n; i++) {
@@ -674,6 +726,7 @@ function fireSpell(w: StormWorld, slot: 0 | 1, ang: number, s: SpellStats, isEch
       splinter: s.splinter, shock: s.shock, siphon: s.siphon, leech: s.leech,
       spin: s.spiral ? (i % 2 ? -2.6 : 2.6) : 0,
     });
+    if (bn(w, 'crit') && rand(w) < 0.1 * bn(w, 'crit')) { b.dmg *= 3; b.r *= 1.3; }
     if (s.wave) b.wave = { bx: b.x, by: b.y, ux: Math.cos(a), uy: Math.sin(a) };
     if (s.boom) {
       // meteors fall where you aim (a spread puts each a little apart)
@@ -688,6 +741,8 @@ function fireSpell(w: StormWorld, slot: 0 | 1, ang: number, s: SpellStats, isEch
   w.sounds.push(slot === 0 ? 'shoot' : 'cast');
   if (!isEcho && (s.echo || (has(w, 'echostone') && p.volleys % 4 === 0))) w.echoes.push({ at: w.time + 0.2, slot, ang });
 }
+/** Quick kills stack a combo: +2% damage each, up to +60%. */
+export const comboMul = (w: StormWorld) => 1 + Math.min(30, w.combo) * 0.02;
 /** Where the player is aiming (meteors fall there). */
 const aimPt = { x: 0, y: 0 };
 
@@ -721,7 +776,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     p.moving = m > 0;
     if (m) { mx /= m; my /= m; }
     const slowGround = tile === T_WATER || tile === T_BOG || tile === T_BLOOD;
-    const sp = (inp.focus ? 85 : 175) * (slowGround ? 0.7 : 1) * p.speedMul * (has(w, 'quickfeet') ? 1.15 : 1);
+    const sp = (inp.focus ? 85 : 175) * (slowGround ? 0.7 : 1) * p.speedMul * (has(w, 'quickfeet') ? 1.15 : 1) * (w.overdrive > 0 ? 1.12 : 1);
     p.stillT = m ? 0 : p.stillT + dt;
     if (has(w, 'bulwark') && !p.shield) { p.wardT += dt; if (p.wardT >= 15) { p.shield = true; p.wardT = 0; w.fx.push({ kind: 'ring', x: p.x, y: p.y, color: 0x8fd0ff, t: w.time, dur: 0.5, r: 30 }); } }
     const grip = tile === T_ICE ? 2.2 : 30;
@@ -736,7 +791,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       const a = m ? Math.atan2(my, mx) : p.face;
       const from = { x: p.x, y: p.y };
       for (let i = 0; i < 12; i++) slide(w, p, Math.cos(a) * 8, Math.sin(a) * 8);
-      p.blinkCd = has(w, 'phantom') ? 0.66 : 1.1;
+      p.blinkCd = (has(w, 'phantom') ? 0.66 : 1.1) * Math.pow(0.85, bn(w, 'blink'));
       p.inv = Math.max(p.inv, 0.32);
       w.fx.push({ kind: 'blink', x: from.x, y: from.y, color: 0xb48cff, t: w.time, dur: 0.35, r: Math.atan2(p.y - from.y, p.x - from.x) });
       w.sounds.push('zap');
@@ -762,9 +817,9 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       w.sounds.push('portal', 'boom');
     }
     p.inv = Math.max(0, p.inv - dt);
-    p.mana = Math.min(p.maxMana, p.mana + 26 * (has(w, 'moonwell') ? 1.5 : 1) * dt);
+    p.mana = Math.min(p.maxMana, p.mana + 26 * (has(w, 'moonwell') ? 1.5 : 1) * (1 + 0.25 * bn(w, 'wellspring')) * (w.overdrive > 0 ? 3 : 1) * dt);
     // shoot
-    const rateMul = (has(w, 'quickcast') ? 1.2 : 1) * (has(w, 'lastrites') && p.hp === 1 ? 1.5 : 1);
+    const rateMul = (has(w, 'quickcast') ? 1.2 : 1) * (has(w, 'lastrites') && p.hp === 1 ? 1.5 : 1) * (1 + 0.12 * bn(w, 'haste')) * (w.overdrive > 0 ? 1.8 : 1);
     const costMul = has(w, 'heavyhand') ? 0.75 : 1;
     p.cdA = Math.max(0, p.cdA - dt);
     p.cdB = Math.max(0, p.cdB - dt);
@@ -774,9 +829,10 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       if (!want || cd > 0) continue;
       const s = spellStats(w.spells[slot], 1, rateMul);
       if (!s || p.mana < s.mana * costMul) continue;
-      p.mana -= s.mana * costMul;
+      if (w.overdrive <= 0) p.mana -= s.mana * costMul;
       if (slot === 0) p.cdA = 1 / s.rate; else p.cdB = 1 / s.rate;
       fireSpell(w, slot, p.face, s);
+      if (rand(w) < 0.1 * bn(w, 'echo')) w.echoes.push({ at: w.time + 0.18, slot, ang: p.face });
     }
     for (let i = w.echoes.length - 1; i >= 0; i--) {
       const e = w.echoes[i];
@@ -785,6 +841,25 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
       if (s) fireSpell(w, e.slot, e.ang, s, true);
       w.echoes.splice(i, 1);
     }
+  }
+
+  // the combo fades if you stop killing; Heat cools slowly
+  if (w.comboT > 0) { w.comboT -= dt; if (w.comboT <= 0) w.combo = 0; }
+  else if (w.heat < 100) w.heat = Math.max(0, w.heat - dt * 3);
+  // Overdrive: a full Heat bar, spent all at once
+  if (inp.surge && w.heat >= 100 && w.overdrive <= 0 && !p.dead) {
+    w.overdrive = 6; w.heat = 0;
+    for (let j = w.bullets.length - 1; j >= 0; j--) { const b = w.bullets[j]; if (!b.friendly && Math.hypot(b.x - p.x, b.y - p.y) < 180) { w.fx.push({ kind: 'hit', x: b.x, y: b.y, color: 0xffd06a, t: w.time, dur: 0.3 }); w.bullets.splice(j, 1); } }
+    for (const f of w.foes) if (f.state !== 'spawn' && Math.hypot(f.x - p.x, f.y - p.y) < 180) hurtFoe(w, f, 30, 0xffd06a);
+    w.fx.push({ kind: 'nova', x: p.x, y: p.y, color: 0xffb04a, t: w.time, dur: 0.6, r: 180 });
+    w.fx.push({ kind: 'phase', x: p.x, y: p.y, color: 0xffb04a, t: w.time, dur: 0.8, r: 900, text: 'OVERDRIVE' });
+    w.sounds.push('portal', 'boom');
+  }
+  if (w.overdrive > 0) w.overdrive = Math.max(0, w.overdrive - dt);
+  // the cinder aura burns anything that comes close
+  if (bn(w, 'aura') && !p.dead) {
+    w.auraT -= dt;
+    if (w.auraT <= 0) { w.auraT = 0.3; for (const f of w.foes) if (f.state !== 'spawn' && Math.hypot(f.x - p.x, f.y - p.y) < 58 + f.r) hurtFoe(w, f, 2.4 * bn(w, 'aura'), 0xff9a3a, true); }
   }
 
   // familiars circle you and join the fight
@@ -806,7 +881,9 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
   }
 
   // waves
-  if (!w.foes.length && w.waves.length) {
+  const fighting = w.foes.filter((f) => f.type !== 'brazier' && f.type !== 'thief').length;
+  if (w.waves.length) w.waveClock += dt;
+  if (w.waves.length && (fighting <= 1 || w.waveClock > 10)) {
     w.waveDelay -= dt;
     if (w.waveDelay <= 0) {
       const list = w.waves.shift()!, ring = w.twist === 'ambush';
@@ -820,7 +897,8 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
         spawnFoe(w, t.type, t.elite, at);
         if (at) w.foes[w.foes.length - 1].st = 1.1;
       });
-      w.waveDelay = 1.4;
+      w.waveDelay = 0.7;
+      w.waveClock = 0;
     }
   }
   // twists that run on a clock
@@ -881,7 +959,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     f.t += dt * k;
     if (f.state === 'sleep') {
       // gargoyles wake when you come close (or hurt them)
-      if (d < 210 || f.hp < f.maxHp) { f.state = 'move'; f.flash = 1; w.sounds.push('freeze'); }
+      if (d < 210 || f.hp < f.maxHp || f.t > 4.5) { f.state = 'move'; f.flash = 1; w.sounds.push('freeze'); }
       continue;
     }
     // timed patterns
@@ -1064,6 +1142,7 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
         // a graze: a near miss feeds your mana (and your score)
         b.grazed = true;
         w.stats.grazes++;
+        w.heat = Math.min(100, w.heat + 1.6 * (1 + 0.35 * bn(w, 'frenzy')));
         p.mana = Math.min(p.maxMana, p.mana + (has(w, 'grazer') ? 9 : 3));
         if (has(w, 'grazer') && w.stats.grazes % 3 === 0) p.cinders++;
         w.score += 5 * scoreMul(w);
@@ -1080,17 +1159,23 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
   }
 
   // pickups drift to you
-  const reach = has(w, 'magnet') ? 200 : 70;
+  const reach = (has(w, 'magnet') ? 200 : 70) + 55 * bn(w, 'magnet') + (w.overdrive > 0 ? 120 : 0);
   for (let i = w.pickups.length - 1; i >= 0; i--) {
     const k = w.pickups[i];
     k.t += dt;
     const dd = Math.hypot(p.x - k.x, p.y - k.y);
-    if (dd < reach || k.t > 6) { const sp = 300 + k.t * 80; k.vx = ((p.x - k.x) / (dd || 1)) * sp; k.vy = ((p.y - k.y) / (dd || 1)) * sp; }
+    let sp = 0;
+    if (dd < reach || k.t > 6) { sp = Math.min(1100, 300 + k.t * 80); k.vx = ((p.x - k.x) / (dd || 1)) * sp; k.vy = ((p.y - k.y) / (dd || 1)) * sp; }
     else { k.vx *= 0.9; k.vy *= 0.9; }
-    k.x += k.vx * dt; k.y += k.vy * dt;
-    if (dd < 14 && !p.dead) {
-      if (k.kind === 'cinder') p.cinders += k.n; else p.hp = Math.min(p.maxHp, p.hp + 1);
-      w.sounds.push(k.kind === 'heart' ? 'heal' : 'click');
+    // a fast pull lands on you instead of overshooting
+    if (dd < 14 || dd <= sp * dt) { k.x = p.x; k.y = p.y; } else { k.x += k.vx * dt; k.y += k.vy * dt; }
+    if ((dd < 14 || dd <= sp * dt) && !p.dead) {
+      if (k.kind === 'cinder') p.cinders += k.n;
+      else if (k.kind === 'xp') {
+        p.xp += k.n;
+        while (p.xp >= xpNeed(p.level)) { p.xp -= xpNeed(p.level); p.level++; w.pendingLevels++; w.fx.push({ kind: 'text', x: p.x, y: p.y - 30, color: 0x9fffd0, t: w.time, dur: 1.2, text: 'Level up!' }); w.fx.push({ kind: 'ring', x: p.x, y: p.y, color: 0x9fffd0, t: w.time, dur: 0.5, r: 60 }); w.sounds.push('heal'); }
+      } else p.hp = Math.min(p.maxHp, p.hp + 1);
+      if (k.kind !== 'xp') w.sounds.push(k.kind === 'heart' ? 'heal' : 'click');
       w.pickups.splice(i, 1);
     }
   }
@@ -1101,6 +1186,11 @@ export function update(w: StormWorld, inp: Input, dt = STEP) {
     if (!f || f.hp > 0) continue;
     w.foes.splice(i, 1);
     killed(w, f);
+  }
+  // once the real foes are gone, the room's furniture goes out with them
+  if (!w.waves.length && !w.cleared && w.foes.length && w.foes.every((f) => f.type === 'brazier') && !(w.twist === 'siege' && w.twistT > 0)) {
+    for (const f of w.foes) w.fx.push({ kind: 'die', x: f.x, y: f.y, color: 0xff8a3a, t: w.time, dur: 0.5, r: f.r, src: f.type });
+    w.foes = [];
   }
   if (!w.foes.length && !w.waves.length && !w.cleared && !p.dead && !(w.twist === 'siege' && w.twistT > 0)) {
     w.cleared = true;
@@ -1152,6 +1242,14 @@ const scoreMul = (w: StormWorld) => (w.diff === 'nightmare' ? 2 : w.diff === 'ge
 function killed(w: StormWorld, f: Foe) {
   const p = w.player;
   w.stats.kills++;
+  if (f.type !== 'brazier') {
+    w.combo++; w.comboT = 2.6; w.bestCombo = Math.max(w.bestCombo, w.combo);
+    w.heat = Math.min(100, w.heat + (f.boss ? 40 : f.elite ? 18 : 7) * (1 + 0.35 * bn(w, 'frenzy')));
+    if ([10, 25, 50, 100].includes(w.combo)) { w.fx.push({ kind: 'text', x: p.x, y: p.y - 40, color: 0xffd06a, t: w.time, dur: 1.3, text: `${w.combo} combo!` }); w.sounds.push('portal'); }
+    // experience gems
+    const xp = f.boss ? 30 : f.elite ? 8 : Math.max(1, Math.round((FOES[f.type]?.cinders ?? 2) * 0.8));
+    for (let i = 0, k = Math.min(5, xp); i < k; i++) { const a = rand(w) * Math.PI * 2, sp = 40 + rand(w) * 90; w.pickups.push({ kind: 'xp', x: f.x, y: f.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, n: xp / k, t: 0 }); }
+  }
   p.killsSince++;
   w.score += (f.boss ? 1000 * (w.act + 1) : (f.elite ? 60 : 10) * (w.act + 1)) * scoreMul(w);
   w.fx.push({ kind: 'die', x: f.x, y: f.y, color: f.boss ? 0xffd06a : f.elite ? 0xffb020 : 0xff8a6a, t: w.time, dur: f.boss ? 1.4 : 0.5, r: f.r, src: f.type });
@@ -1185,6 +1283,8 @@ function hurtPlayer(w: StormWorld) {
   }
   p.hp -= 1;
   p.inv = 1.1;
+  if (w.combo >= 5) w.fx.push({ kind: 'text', x: p.x, y: p.y - 34, color: 0xff6a6a, t: w.time, dur: 1, text: `combo lost` });
+  w.combo = 0; w.comboT = 0; w.heat = Math.max(0, w.heat - 30);
   w.stats.hitsTaken++;
   w.fx.push({ kind: 'hurt', x: p.x, y: p.y, color: 0xff3a3a, t: w.time, dur: 0.6, r: 40 });
   w.sounds.push('boom');

@@ -10,7 +10,7 @@ import { BASES, CURSE_IDS, MAX_MODS, MODS, RELICS, spellStats, spellSummary, STO
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
   ROOMS_PER_ACT, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
-  TWISTS,
+  TWISTS, BOONS, boonChoices, takeBoon, xpNeed, comboMul,
 } from './sim';
 import { T_LAVA } from '../sim/constants';
 
@@ -188,6 +188,7 @@ class Cinderstorm {
   private lastShots = 0;
   private famSprites = new Map<string, Sprite>();
   private twistText = '';
+  private surgeQueued = false;
   private rush = false;
   private seen: string[] = (() => { try { return JSON.parse(localStorage.getItem('ashen-storm-seen') || '[]') as string[]; } catch { return []; } })();
 
@@ -195,7 +196,7 @@ class Cinderstorm {
 
   async boot() {
     this.root.className = 'storm';
-    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="spanel"></div>`;
+    this.root.innerHTML = `<div class="shud"></div><div class="srelics"></div><div class="sboss"><b></b><i><s></s></i></div><div class="stwist"></div><div class="sbars"><div class="sxp"><i></i><b></b></div><div class="sheat"><i></i><b></b></div></div><div class="spanel"></div>`;
     document.body.appendChild(this.root);
     this.hud = this.root.querySelector('.shud')!;
     this.panel = this.root.querySelector('.spanel')!;
@@ -319,6 +320,8 @@ class Cinderstorm {
     if (k === 'escape') { e.preventDefault(); if (this.mode === 'play') this.pause(); else if (this.mode === 'paused') this.resume(); return; }
     if (k === ' ' || k === 'tab') e.preventDefault();
     if ((k === 'f' || k === 'e') && !e.repeat) this.bombQueued = true;
+    if ((k === 'q' || k === 'r') && !e.repeat) this.surgeQueued = true;
+    if ((k === '1' || k === '2' || k === '3') && this.mode === 'paused') { this.panel.querySelectorAll<HTMLElement>('[data-boon]')[Number(k) - 1]?.click(); return; }
     this.keys.add(k);
   };
   private ku = (e: KeyboardEvent) => { e.stopImmediatePropagation(); this.keys.delete(e.key.toLowerCase()); };
@@ -367,6 +370,7 @@ class Cinderstorm {
     this.inp.focus ||= btn(2);
     const pressed = (i: number) => btn(i) && !this.padPrev[i];
     if (pressed(1) || pressed(4) || pressed(5)) this.bombQueued = true;
+    if (pressed(3)) this.surgeQueued = true;
     if (pressed(9)) this.pause();
     this.padPrev = gp.buttons.map((b) => b.pressed);
   }
@@ -391,6 +395,8 @@ class Cinderstorm {
         this.beatsDue();
         this.inp.bomb = this.bombQueued;
         this.bombQueued = false;
+        this.inp.surge = this.surgeQueued;
+        this.surgeQueued = false;
         update(this.w, this.inp);
         this.acc -= STEP;
         this.sounds();
@@ -408,7 +414,12 @@ class Cinderstorm {
       this.seenFx.add(f);
       if (f.kind === 'hurt') { this.flash = { a: 0.35, color: 0xff1a2a }; this.hitStop = Math.max(this.hitStop, 0.07); this.shake = Math.max(this.shake, 9); }
       if (f.kind === 'nova') { this.flash = { a: 0.45, color: f.color }; this.shake = Math.max(this.shake, 12); }
-      if (f.kind === 'phase') { this.flash = { a: 0.5, color: 0xffffff }; this.hitStop = 0.3; this.shake = 16; this.banner(`Phase ${f.text ?? ''}`, bossOf(this.w).name); }
+      if (f.kind === 'phase') {
+        this.flash = { a: 0.5, color: f.text === 'OVERDRIVE' ? 0xffc070 : 0xffffff }; this.hitStop = 0.3; this.shake = 16;
+        if (f.text === 'OVERDRIVE') this.banner('Overdrive!', 'Faster, stronger, free spells: 6 seconds');
+        else if (f.text === 'Held!') this.banner('Held!', 'The rifts are closed');
+        else this.banner(`Phase ${f.text ?? ''}`, bossOf(this.w).name);
+      }
       if (f.kind === 'die' && (f.r ?? 0) > 18) { this.flash = { a: 0.6, color: 0xffe8b0 }; this.hitStop = 0.45; this.shake = 20; this.punch = 0.08; }
       if (f.kind === 'phase' || f.kind === 'nova') this.punch = Math.max(this.punch, 0.05);
       // the fallen shatter into the pixels they were drawn with
@@ -475,6 +486,7 @@ class Cinderstorm {
     const w = this.w;
     music.setIntensity(w.foes.length ? (w.kind === 'boss' ? 1 : 0.7) : 0.15);
     if (w.player.dead && this.mode === 'play') { this.mode = 'dead'; setTimeout(() => this.results(), 1200); return; }
+    if (w.pendingLevels > 0 && this.mode === 'play') { this.levelUp(); return; }
     if (w.cleared && (w.kind === 'fight' || w.kind === 'elite' || w.kind === 'boss')) {
       if (!this.clearedAt) { this.clearedAt = now; play('portal'); }
       if (now - this.clearedAt > (w.kind === 'boss' ? 2600 : 1400)) { this.clearedAt = 0; this.mode = 'between'; this.afterRoom(); }
@@ -580,6 +592,7 @@ class Cinderstorm {
     sg.clear();
     // rune circles: a slow ritual ring under every boss, a small one under you while you cast
     for (const f of w.foes) if (f.boss && f.state !== 'spawn') runeCircle(sg, f.x, f.y, f.r * 2.6, now / 2400, [0x8cff9a, 0xe8e0c8, 0x9fe0ff, 0xffd06a, 0xff3a5a, 0xff8a3a][w.act] ?? 0xffd06a, 0.45);
+    if (w.overdrive > 0 && !p.dead) { runeCircle(sg, p.x, p.y + 2, 28, now / 260, 0xffb04a, 0.85); runeCircle(sg, p.x, p.y + 2, 40, -now / 400, 0xffd06a, 0.4 * Math.min(1, w.overdrive)); }
     const casting = this.inp.fireA || this.inp.fireB;
     if (!p.dead && casting) runeCircle(sg, p.x, p.y + 2, 18, -now / 700, CLASSES[w.player.cls].tint === 0xffffff ? 0xb48cff : CLASSES[w.player.cls].tint, 0.5);
     if (!p.dead) sg.ellipse(p.x, p.y + 4, 9, 4).fill({ color: 0x000000, alpha: 0.4 });
@@ -656,6 +669,7 @@ class Cinderstorm {
     for (const [k, sp] of this.famSprites) if (!seenF.has(k)) { sp.destroy(); this.famSprites.delete(k); }
     for (const k of w.pickups) {
       if (k.kind === 'cinder') g.poly([k.x, k.y - 4, k.x + 3, k.y, k.x, k.y + 4, k.x - 3, k.y]).fill({ color: 0xffb04a }).stroke({ width: 1, color: 0x5a2a0a });
+      else if (k.kind === 'xp') { const z = 3 + Math.min(3, k.n); g.poly([k.x, k.y - z, k.x + z * 0.7, k.y, k.x, k.y + z, k.x - z * 0.7, k.y]).fill({ color: 0x7affc8 }).stroke({ width: 1, color: 0x0a3a2a }); g.rect(k.x - 1, k.y - z * 0.5, 1.5, 1.5).fill({ color: 0xffffff }); }
       else g.circle(k.x, k.y, 6).fill({ color: 0xff3a4a }).stroke({ width: 1.5, color: 0xffffff, alpha: 0.6 + 0.4 * Math.sin(now / 120) });
     }
     for (const b of bs) if (b.target) g.circle(b.target.x, b.target.y, b.target.boom).stroke({ width: 1.5, color: b.color, alpha: 0.35 });
@@ -717,6 +731,7 @@ class Cinderstorm {
     const w = this.w, p = w.player;
     const lights: { x: number; y: number; r: number; a: number; color: number; glow: number }[] = [];
     if (!p.dead) lights.push({ x: p.x, y: p.y, r: 250 + Math.sin(now / 160) * 6, a: 1, color: 0xffd8a0, glow: 0.14 });
+    if (!p.dead && w.overdrive > 0) lights.push({ x: p.x, y: p.y, r: 140, a: 1, color: 0xffa040, glow: 0.3 });
     if (w.stats.shots !== this.lastShots) { this.lastShots = w.stats.shots; this.muzzle = 1; }
     this.muzzle *= 0.75;
     if (!p.dead && this.muzzle > 0.05) lights.push({ x: p.x + Math.cos(p.face) * 16, y: p.y + Math.sin(p.face) * 16, r: 60, a: this.muzzle, color: spellStats(w.spells[0])?.color ?? 0xffffff, glow: 0.35 * this.muzzle });
@@ -797,6 +812,20 @@ class Cinderstorm {
     };
     const act = ACTS[w.act];
     const where = w.kind === 'boss' ? bossOf(w).name : `${act.name} · ${Math.min(w.room, ROOMS_PER_ACT)}/${ROOMS_PER_ACT}`;
+    // experience and heat bars (updated every frame, cheaply)
+    const xpB = this.root.querySelector<HTMLElement>('.sxp'), hB = this.root.querySelector<HTMLElement>('.sheat');
+    if (xpB && hB) {
+      const show = this.mode === 'play' || this.mode === 'paused';
+      xpB.style.display = hB.style.display = show ? '' : 'none';
+      (xpB.firstElementChild as HTMLElement).style.width = `${Math.min(100, (p.xp / xpNeed(p.level)) * 100)}%`;
+      const lv = `Lv ${p.level}`;
+      if (xpB.lastElementChild!.textContent !== lv) xpB.lastElementChild!.textContent = lv;
+      const full = w.heat >= 100, od = w.overdrive > 0;
+      (hB.firstElementChild as HTMLElement).style.width = `${od ? (w.overdrive / 6) * 100 : w.heat}%`;
+      hB.classList.toggle('full', full && !od); hB.classList.toggle('od', od);
+      const ht = od ? 'OVERDRIVE' : full ? 'Q: OVERDRIVE!' : w.combo >= 2 ? `${w.combo} combo · +${Math.round((comboMul(w) - 1) * 100)}% dmg` : 'Heat';
+      if (hB.lastElementChild!.textContent !== ht) hB.lastElementChild!.textContent = ht;
+    }
     // a running twist shows its clock
     const tw = w.twist && !w.cleared ? (w.twist === 'siege' && w.twistT > 0 ? `Hold the line: ${Math.ceil(w.twistT)}s` : w.twist === 'thief' && w.foes.some((f) => f.type === 'thief' && f.state !== 'spawn') ? `Catch the thief: ${Math.max(0, Math.ceil(w.twistT))}s` : TWISTS[w.twist].name) : '';
     if (tw !== this.twistText) { this.twistText = tw; const el = this.root.querySelector<HTMLElement>('.stwist'); if (el) { el.textContent = tw; el.style.display = tw && this.mode === 'play' ? '' : 'none'; } }
@@ -838,8 +867,9 @@ class Cinderstorm {
         <li><kbd>W A S D</kbd> move</li><li><kbd>Mouse</kbd> aim</li>
         <li><kbd>Left</kbd> / <kbd>Right click</kbd> your two spells</li><li><kbd>Space</kbd> blink (can't be hit)</li>
         <li><kbd>Shift</kbd> focus: slow, precise, hitbox shown</li><li><kbd>F</kbd> Ash Nova: clears every foe shot</li>
+        <li><kbd>Q</kbd> Overdrive, when Heat is full: quick kills and grazes build Heat</li><li>Foes drop green gems: level up and pick a boon</li>
         <li>Only the small dot at your centre can be hit. Near misses (grazes) refill mana.</li><li><kbd>Esc</kbd> pause</li>
-        <li>Controller: sticks move and aim, triggers fire, <kbd>A</kbd> blink, <kbd>B</kbd> Nova, <kbd>X</kbd> focus</li>
+        <li>Controller: sticks move and aim, triggers fire, <kbd>A</kbd> blink, <kbd>B</kbd> Nova, <kbd>X</kbd> focus, <kbd>Y</kbd> Overdrive</li>
       </ul>
       <h3>Who descends?</h3>
       <div class="sclasses">${(Object.keys(CLASSES) as ClassId[]).map((c) => { const lock = CLASSES[c].locked && !this.ach.includes(CLASSES[c].locked!); return `<button type="button" class="btn ${this.cls === c ? 'ember' : ''}" data-cls="${c}" ${lock ? 'disabled' : ''}><b>${lock ? '🔒 ' : ''}${CLASSES[c].name}</b><small>${esc(CLASSES[c].desc)}</small></button>`; }).join('')}</div>
@@ -897,6 +927,18 @@ class Cinderstorm {
     this.on('[data-s="go"]', () => this.resume());
     this.on('[data-s="forge"]', () => this.forge(() => { this.mode = 'paused'; this.resume(); }, 'Back to the fight'));
     this.on('[data-s="quit"]', () => this.results(true));
+  }
+  /** A level-up: time stops while you choose one of three boons. */
+  private levelUp() {
+    const w = this.w;
+    this.mode = 'paused';
+    this.ptrA = this.ptrB = false;
+    const picks = boonChoices(w);
+    if (!picks.length) { w.pendingLevels = 0; this.resume(); return; }
+    play('portal');
+    this.show(`<h2>Level ${w.player.level - w.pendingLevels + 1}</h2><p class="k">Choose a boon (1, 2, 3). Boons stack, and last the whole run.</p>
+      <div class="sboons">${picks.map((id) => { const b = BOONS[id], n = w.player.boons[id] ?? 0; return `<button type="button" class="btn" data-boon="${id}"><i>${b.icon}</i><b>${esc(b.name)}</b><small>${esc(b.desc)}</small><span>${'◆'.repeat(n)}${'◇'.repeat(b.max - n)}</span></button>`; }).join('')}</div>`);
+    this.on('[data-boon]', (el) => { takeBoon(w, el.dataset.boon!); if (w.pendingLevels > 0) this.levelUp(); else this.resume(); });
   }
   private setBright(b: Bright) { this.bright = b; this.best.bright = b; saveBest(this.best); }
   private resume() {
@@ -1139,7 +1181,7 @@ class Cinderstorm {
       <p>${won ? 'The Reach goes quiet. Your grimoire is still warm.' : `${abandoned ? 'You left' : 'You fell'} in ${esc(w.kind === 'boss' ? `the lair of ${bossOf(w).name}` : act.name)}${w.loop ? `, ${w.loop} loop${w.loop > 1 ? 's' : ''} into the Abyss` : ''}.`}</p>
       <p class="sbig">${Math.floor(w.score).toLocaleString()}${w.score > prevBest ? ' <small>new best!</small>' : ''}</p>
       ${this.newAch.length ? `<div class="sach">${this.newAch.map((id) => { const a = ACH.find((x) => x.id === id)!; return `<div class="got"><b>★ ${esc(a.name)}</b><span>${esc(a.desc)} (+5 Ash)</span></div>`; }).join('')}</div>` : ''}
-      <p class="k">${this.daily ? 'Daily storm · ' : ''}${CLASSES[w.player.cls].name} · ${DIFFICULTY[w.diff].name} · Rooms ${st.rooms} · Bosses ${st.bosses} · Foes felled ${st.kills} · Grazes ${st.grazes} · Hits taken ${st.hitsTaken}${ash ? ` · <b>+${ash} Ash</b> carried home` : ''}</p>
+      <p class="k">${this.daily ? 'Daily storm · ' : ''}${CLASSES[w.player.cls].name} · ${DIFFICULTY[w.diff].name} · Rooms ${st.rooms} · Bosses ${st.bosses} · Foes felled ${st.kills} · Grazes ${st.grazes} · Level ${w.player.level} · Best combo ${w.bestCombo} · Hits taken ${st.hitsTaken}${ash ? ` · <b>+${ash} Ash</b> carried home` : ''}</p>
       <div class="row"><button type="button" class="btn ember" data-s="again">Run again</button><button type="button" class="btn" data-s="menu">Change difficulty</button><button type="button" class="btn" data-s="quit">Back to title</button></div>`);
     this.on('[data-s="again"]', () => this.startRun());
     this.on('[data-s="menu"]', () => this.menu());

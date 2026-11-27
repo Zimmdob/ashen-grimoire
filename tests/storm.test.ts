@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spellStats } from '../src/storm/cards';
-import { ACTS, addRelic, doorChoices, enterRoom, isWall, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
+import { ACTS, addRelic, boonChoices, doorChoices, enterRoom, isWall, takeBoon, xpNeed, newRun, nextAct, NO_INPUT, onBeat, relicChoices, TWISTS, update, type Input, type StormWorld, type Twist } from '../src/storm/sim';
 import { RELIC_IDS, STORM_CARDS, BASES, MODS } from '../src/storm/cards';
 
 /** A bot that can't be hurt: aims at the nearest foe and fires both spells, circling to keep moving. */
@@ -257,5 +257,45 @@ describe('cinderstorm: battle variety', () => {
     while (!w.cleared && t < 60 * 30) { w.player.inv = 1; update(w, NO_INPUT); t++; }
     expect(w.cleared).toBe(true);
     expect(w.stats.kills).toBe(0);
+  });
+});
+
+describe('cinderstorm: growth and heat', () => {
+  it('kills drop experience, levels offer boons, and boons make you stronger', () => {
+    const w = newRun({ seed: 21 });
+    w.spells = [['ember', 'split', 'seek', 'haste'], ['bone', 'pierce', 'echo']];
+    play(w, 60 * 120);
+    for (let t = 0; t < 120; t++) update(w, NO_INPUT);
+    expect(w.player.level).toBeGreaterThan(1);
+    expect(w.pendingLevels).toBeGreaterThan(0);
+    const picks = boonChoices(w);
+    expect(new Set(picks).size).toBe(3);
+    const hp = w.player.maxHp;
+    takeBoon(w, 'vigor');
+    expect(w.player.maxHp).toBe(hp + 1);
+    expect(xpNeed(5)).toBeGreaterThan(xpNeed(1));
+  });
+  it('quick kills build a combo and Heat; a full bar unlocks Overdrive, which clears shots around you', () => {
+    const w = newRun({ seed: 8 });
+    w.spells = [['ember', 'split', 'seek', 'haste'], ['bone', 'pierce', 'echo']];
+    let best = 0;
+    for (let t = 0; t < 60 * 30 && !w.cleared; t++) { if (t % 18 === 0) onBeat(w, t / 18); update(w, botStep(w, t)); best = Math.max(best, w.combo); }
+    expect(best).toBeGreaterThan(2);
+    enterRoom(w, 2, 'fight', null);
+    w.heat = 100;
+    for (let i = 0; i < 30; i++) w.bullets.push({ ...w.bullets[0], id: 5000 + i, x: w.player.x + 40, y: w.player.y, vx: 0, vy: 0, r: 5, dmg: 1, life: 5, age: 0, friendly: false, color: 0, pierce: 0, chain: 0, homing: 0, burn: 0, slow: 0, orbit: null, burst: null, hit: [], hitT: [], wake: 0, bounce: 0, boomer: false, cluster: false, gravity: false, tick: 0, wave: null, target: null, turret: null, lob: null, grazed: false, spin: 0, splinter: false, shock: false, siphon: 0, leech: 0, orbitFoe: null });
+    update(w, { ...NO_INPUT, surge: true });
+    expect(w.overdrive).toBeGreaterThan(5);
+    expect(w.heat).toBe(0);
+    expect(w.bullets.filter((b) => !b.friendly).length).toBe(0);
+  });
+  it('rooms never wait on furniture or a sleeping gargoyle', () => {
+    const w = newRun({ seed: 3 });
+    w.act = 2;
+    enterRoom(w, 1, 'fight', null);
+    w.waves = [[{ type: 'gargoyle', elite: false }, { type: 'brazier', elite: false }]];
+    let t = 0;
+    for (; t < 60 * 60 && !w.cleared; t++) { w.player.inv = 1; update(w, { ...NO_INPUT, fireA: true, mx: w.foes[0]?.x ?? 0, my: w.foes[0]?.y ?? 0 }); }
+    expect(w.cleared).toBe(true);
   });
 });

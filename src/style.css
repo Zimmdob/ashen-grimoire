@@ -537,3 +537,20 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .sbeasts b { color: #ffd890; }
 .storm .sbeasts span { font-size: 0.85em; opacity: 0.8; }
 .storm .sbeasts .unseen { opacity: 0.45; }
+
+/* Cinderstorm: experience and heat bars along the bottom */
+.storm .sbars { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); width: min(560px, 70vw); display: grid; gap: 4px; pointer-events: none; }
+.storm .sbars > div { position: relative; height: 14px; background: rgba(8, 6, 10, 0.8); border: 1px solid rgba(232, 200, 140, 0.35); overflow: hidden; }
+.storm .sbars i { position: absolute; inset: 0 auto 0 0; width: 0; transition: width 0.12s linear; }
+.storm .sbars b { position: relative; display: block; text-align: center; font: 13px/14px VT323, monospace; color: #fff3d8; letter-spacing: 1px; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+.storm .sxp i { background: linear-gradient(90deg, #2a9a7a, #7affc8); }
+.storm .sheat i { background: linear-gradient(90deg, #a83a10, #ffb04a); }
+.storm .sheat.full { border-color: #ffd06a; box-shadow: 0 0 12px #ff9a3a; animation: sheatpulse 0.5s ease-in-out infinite alternate; }
+.storm .sheat.od i { background: linear-gradient(90deg, #ffd06a, #fff3c0); }
+@keyframes sheatpulse { from { box-shadow: 0 0 6px #ff9a3a; } to { box-shadow: 0 0 18px #ffd06a; } }
+/* level-up boons */
+.storm .sboons { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+.storm .sboons .btn { display: grid; gap: 4px; justify-items: center; padding: 14px 10px; text-align: center; }
+.storm .sboons .btn i { font-style: normal; font-size: 34px; color: #7affc8; text-shadow: 0 0 10px #2a9a7a; }
+.storm .sboons .btn b { font-size: 1.2em; color: #ffd890; }
+.storm .sboons .btn span { color: #7affc8; letter-spacing: 2px; }
