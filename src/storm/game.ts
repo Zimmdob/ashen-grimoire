@@ -13,7 +13,7 @@ import { BASES, CURSE_IDS, EVOLUTIONS, MAX_MODS, MODS, RELICS, spellStats, spell
 import {
   ACTS, addRelic, AFFIXES, AH, AW, bossOf, CLASSES, coinFlip, curseChoice, DIFFICULTY, doorChoices, enterRoom, MH, MW, newRun, nextAct, NO_INPUT, onBeat, relicChoices, rewardChoices,
   makeRoute, ROOMS_PER_ACT, spawnAt, type Route, spikesUp, spikesWarn, STEP, stormAsh, update, type ClassId, type Difficulty, type Input, type RoomKind, type StormWorld,
-  TWISTS, BOONS, boonChoices, takeBoon, xpNeed, comboMul,
+  TWISTS, shieldUp, BOONS, boonChoices, takeBoon, xpNeed, comboMul,
 } from './sim';
 import { T_LAVA } from '../sim/constants';
 
@@ -67,6 +67,22 @@ const ACH: { id: string; name: string; desc: string; test: (w: StormWorld) => bo
   { id: 'cursed', name: 'Thrice Cursed', desc: 'Carry three curses at once.', test: (w) => w.player.relics.filter((r) => RELICS[r].curse).length >= 3 },
   { id: 'nova', name: 'Clean Slate', desc: 'Clear 150 shots with one Ash Nova.', test: (w) => w.stats.bestNova >= 150 },
   { id: 'kills', name: 'Cinderstorm', desc: 'Fell 400 foes in one run.', test: (w) => w.stats.kills >= 400 },
+  { id: 'rescuer', name: 'Gather the Hearth', desc: 'Bring all five captives home.', test: () => progress.rescued.length >= 5 },
+  { id: 'trueend', name: 'The Last Line', desc: 'Write the ending.', test: (w) => w.won && w.loop >= 1 && w.bell },
+  { id: 'evolved', name: 'Something Greater', desc: 'Fuse a spell evolution.', test: (w) => w.spells.some((c) => !!spellStats(c)?.evo) },
+  { id: 'evolved2', name: 'Twin Miracles', desc: 'Carry two evolved spells at once.', test: (w) => w.spells.every((c) => !!spellStats(c)?.evo) },
+  { id: 'weekly', name: 'Hesk Approves', desc: 'Win a weekly storm.', test: (w) => w.won && w.mutators.length > 0 },
+  { id: 'pacts3', name: 'Bad Bargains', desc: 'Win with three of Rook\u2019s bargains struck.', test: (w) => w.won && w.pacts.length >= 3 },
+  { id: 'pacts7', name: 'Every Bargain', desc: 'Win with all seven bargains struck.', test: (w) => w.won && w.pacts.length >= 7 },
+  { id: 'level15', name: 'Kindled Bright', desc: 'Reach level 15 in one run.', test: (w) => w.player.level >= 15 },
+  { id: 'combo100', name: 'Hundred-Fold', desc: 'Reach a 100 combo.', test: (w) => w.bestCombo >= 100 },
+  { id: 'overdrive10', name: 'Redline', desc: 'Go into Overdrive ten times in one run.', test: (w) => w.stats.overdrives >= 10 },
+  { id: 'bounty3', name: 'Bounty Hunter', desc: 'Claim three bounties in one run.', test: (w) => w.stats.bounties >= 3 },
+  { id: 'thief', name: 'Catch of the Day', desc: 'Catch a cinder thief.', test: (w) => w.stats.thieves >= 1 },
+  { id: 'siege', name: 'Unbroken Line', desc: 'Hold the line three times in one run.', test: (w) => w.stats.sieges >= 3 },
+  { id: 'duelist', name: 'Duelist', desc: 'Win two duels in one run.', test: (w) => w.stats.duels >= 2 },
+  { id: 'gauntlet', name: 'Run the Gauntlet', desc: 'Clear two gauntlets in one run.', test: (w) => w.stats.gauntlets >= 2 },
+  { id: 'scholar', name: 'The Whole Book', desc: 'Find every page of the codex.', test: () => progress.codex.length >= Object.keys(CODEX).length },
 ];
 function loadAch(): string[] { try { return JSON.parse(localStorage.getItem('ashen-storm-ach') || '[]') as string[]; } catch { return []; } }
 function saveAch(a: string[]) { try { localStorage.setItem('ashen-storm-ach', JSON.stringify(a)); } catch { /* storage unavailable */ } }
@@ -699,6 +715,8 @@ class Cinderstorm {
       const big = f.boss ? 1.6 : f.elite ? 1.3 : 1;
       sg.ellipse(f.x, f.y + 3, f.r * 1.1 * big, f.r * 0.45 * big).fill({ color: 0x000000, alpha: 0.4 });
       if (f.elite) sg.circle(f.x, f.y, f.r * 1.6 + Math.sin(now / 150) * 2).stroke({ width: 2, color: 0xffb020, alpha: 0.55 });
+      if (shieldUp(w, f)) sg.circle(f.x, f.y - f.r * 0.6, f.r * 1.9).fill({ color: 0x8fd0ff, alpha: 0.18 }).stroke({ width: 2, color: 0xbfe8ff, alpha: 0.8 });
+      if (f.id === w.bountyId) { const r2 = f.r * 2.2 + Math.sin(now / 120) * 2; sg.circle(f.x, f.y - f.r * 0.5, r2).stroke({ width: 2, color: 0xffd06a, alpha: 0.9 }); for (let k = 0; k < 4; k++) { const a = (k * Math.PI) / 2 + now / 600; sg.moveTo(f.x + Math.cos(a) * r2 * 0.7, f.y - f.r * 0.5 + Math.sin(a) * r2 * 0.7).lineTo(f.x + Math.cos(a) * r2 * 1.25, f.y - f.r * 0.5 + Math.sin(a) * r2 * 1.25).stroke({ width: 2, color: 0xffd06a, alpha: 0.9 }); } }
       if (f.boss && f.phase > 0) {
         const col = [0xffd06a, 0xff8a3a, 0xff3a5a, 0xc060ff][Math.min(3, f.phase)];
         for (let k = 0; k < f.phase; k++) sg.circle(f.x, f.y - f.r, f.r * (1.9 + k * 0.45) + Math.sin(now / 130 + k) * 3).stroke({ width: 2, color: col, alpha: 0.35 - k * 0.08 });
@@ -940,7 +958,7 @@ class Cinderstorm {
       if (hB.lastElementChild!.textContent !== ht) hB.lastElementChild!.textContent = ht;
     }
     // a running twist shows its clock
-    const tw = w.twist && !w.cleared ? (w.twist === 'siege' && w.twistT > 0 ? `Hold the line: ${Math.ceil(w.twistT)}s` : w.twist === 'thief' && w.foes.some((f) => f.type === 'thief' && f.state !== 'spawn') ? `Catch the thief: ${Math.max(0, Math.ceil(w.twistT))}s` : TWISTS[w.twist].name) : '';
+    const tw = w.twist && !w.cleared ? (w.twist === 'siege' && w.twistT > 0 ? `Hold the line: ${Math.ceil(w.twistT)}s` : w.twist === 'thief' && w.foes.some((f) => f.type === 'thief' && f.state !== 'spawn') ? `Catch the thief: ${Math.max(0, Math.ceil(w.twistT))}s` : w.twist === 'bounty' && w.bountyId ? `Bounty: ${Math.max(0, Math.ceil(w.bountyT))}s` : w.twist === 'gauntlet' && w.waves.length ? `Gauntlet: next wave in ${Math.max(0, Math.ceil(w.twistT))}s` : TWISTS[w.twist].name) : '';
     if (tw !== this.twistText) { this.twistText = tw; const el = this.root.querySelector<HTMLElement>('.stwist'); if (el) { el.textContent = tw; el.style.display = tw && this.mode === 'play' ? '' : 'none'; } }
     const key = `${p.hp}|${p.maxHp}|${p.shield}|${Math.round(p.mana)}|${p.bombs}|${p.cinders}|${Math.round(p.blinkCd * 10)}|${Math.round(p.cdA * 20)}|${Math.round(p.cdB * 20)}|${w.room}|${w.act}|${w.spells[0].join()}|${w.spells[1].join()}|${Math.floor(w.score / 10)}|${p.relics.length}`;
     if (key !== this.hudKey) {
@@ -1439,7 +1457,7 @@ class Cinderstorm {
       this.on('[data-s="on"]', () => this.doors());
       return;
     }
-    const which = Math.floor(Math.abs(Math.sin(w.time * 7.3 + w.room * 13 + w.act * 31 + p.cinders)) * 6);
+    const which = Math.floor(Math.abs(Math.sin(w.time * 7.3 + w.room * 13 + w.act * 31 + p.cinders)) * 10);
     const done = (msg: string) => { this.show(`<h2>${esc(msg)}</h2><div class="row"><button type="button" class="btn ember" data-s="on">Onward</button></div>`); this.on('[data-s="on"]', () => this.doors()); };
     const ask = (title: string, text: string, opts: { label: string; ok?: boolean; act: () => void }[]) => {
       this.show(`<h2>${esc(title)}</h2><p>${esc(text)}</p><div class="soffers">${opts.map((o, i) => `<button type="button" class="btn" data-ev="${i}" ${o.ok === false ? 'disabled' : ''}>${esc(o.label)}</button>`).join('')}</div>`);
@@ -1480,6 +1498,35 @@ class Cinderstorm {
       case 4:
         ask('The duelist', 'A champion bars the way, bored. "Fight me. Win, and take two prizes."', [
           { label: 'Accept the duel (a champion fight, then two relics)', act: () => { enterRoom(w, w.room, 'elite'); w.waves = [[{ type: w.waves[1].find((x) => x.elite)?.type ?? 'ghoul', elite: true }]]; this.duel = true; this.enter(); } },
+          leave,
+        ]);
+        break;
+      case 6:
+        ask('The gambler\u2019s table', 'A grinning skeleton shuffles a deck of burnt cards. "Double or nothing, Kindled?"', [
+          { label: 'Wager 30 cinders', ok: p.cinders >= 30, act: () => { p.cinders -= 30; if (coinFlip(w)) { p.cinders += 60; done('The card turns: a crown. You win sixty cinders.'); } else done('The card turns: a skull. The skeleton laughs, softly.'); } },
+          { label: 'Wager 80 cinders', ok: p.cinders >= 80, act: () => { p.cinders -= 80; if (coinFlip(w)) { p.cinders += 160; done('A crown! A hundred and sixty cinders.'); } else done('A skull. It was always going to be a skull.'); } },
+          leave,
+        ]);
+        break;
+      case 7: {
+        const ch = boonChoices(w);
+        ask('A fallen Kindled', 'The ghost of another Kindled sits by a cold fire. "I didn\u2019t make it," she says. "Take what I learned."', [
+          ...ch.slice(0, 2).map((id) => ({ label: `Learn ${BOONS[id].name}: ${BOONS[id].desc}`, act: () => { takeBoon(w, id); done(`You learn ${BOONS[id].name}. The ghost smiles, and is gone.`); } })),
+          leave,
+        ]);
+        break;
+      }
+      case 8: {
+        const page = Object.keys(CODEX).find((k) => !progress.codex.includes(k) && !k.startsWith('n_') && !k.startsWith('b_') && k !== 'ending' && k !== 'bell');
+        if (page) addCodex(page);
+        p.cinders += 15;
+        done(page ? `A scorched page, caught on a thorn: \u201c${CODEX[page].title}\u201d. Ysolde will want it. (+15 cinders)` : 'A scorched page, too burnt to read. Fifteen cinders are pressed between its folds.');
+        break;
+      }
+      case 9:
+        ask('A forgotten forge', 'An anvil still warm, and a hammer left mid-swing.', [
+          { label: 'Temper your grimoire: 35 cinders for 15% more damage this run', ok: p.cinders >= 35, act: () => { p.cinders -= 35; p.dmgBonus += 0.15; done('Sparks fly. Your spells come out sharper.'); } },
+          { label: 'Forge a ward: 25 cinders', ok: p.cinders >= 25 && !p.shield, act: () => { p.cinders -= 25; p.shield = true; done('A ward of hammered ash settles over you.'); } },
           leave,
         ]);
         break;
