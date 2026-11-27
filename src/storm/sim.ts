@@ -591,6 +591,25 @@ export function nextAct(w: StormWorld): boolean {
   return true;
 }
 
+/** An act's route: room 1 is always a fight; rooms 2 and 3 offer branching choices; then the boss. */
+export interface Route { rows: RoomKind[][]; edges: number[][]; at: number }
+export function makeRoute(w: StormWorld): Route {
+  const bag: RoomKind[] = ['fight', 'fight', 'elite', 'treasure', 'shrine', 'shop', 'event', 'event', 'fight', 'elite'];
+  const fighty = (k: RoomKind) => k === 'fight' || k === 'elite' || k === 'rescue';
+  const row2: RoomKind[] = [pick(w, bag), pick(w, bag), pick(w, bag)];
+  const cap = CAPTIVES[w.act];
+  if (cap && !w.rescued.includes(cap) && !w.rush && w.loop === 0) row2[Math.floor(rand(w) * 3)] = 'rescue';
+  const row3: RoomKind[] = [pick(w, bag), pick(w, bag), pick(w, bag)];
+  // the last row always has at least two fights in it, so the boss never comes cold
+  let fights = row3.filter(fighty).length;
+  for (let i = 0; fights < 2 && i < 3; i++) if (!fighty(row3[i])) { row3[i] = rand(w) < 0.7 ? 'fight' : 'elite'; fights++; }
+  // row 2 node i leads to row 3 node i, and sometimes a neighbour too
+  const edges: number[][] = row2.map((_, i) => { const e = [i]; if (rand(w) < 0.55) e.push(Math.max(0, Math.min(2, i + (rand(w) < 0.5 ? -1 : 1)))); return [...new Set(e)]; });
+  // every row-2 room reaches at least one fight
+  edges.forEach((e, i) => { if (!fighty(row2[i]) && !e.some((j) => fighty(row3[j]))) e.push(row3.findIndex(fighty)); });
+  return { rows: [['fight'], row2, row3], edges, at: 0 };
+}
+
 /** Two doors to choose between after a room (the third room always leads to the boss). */
 export function doorChoices(w: StormWorld): RoomKind[] {
   if (w.room >= ROOMS_PER_ACT) return ['boss'];

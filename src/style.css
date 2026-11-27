@@ -617,3 +617,25 @@ body.touch #surv .g { min-height: 30px; padding: 2px 3px; }
 .storm .stut b { display: block; color: #ffd890; font-size: 1.25em; margin: 2px 0; }
 .storm .stut p { margin: 0; line-height: 1.4; }
 .storm.hubmode .stut { display: none; }
+/* room transitions: an iris opening */
+@property --hole { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+.storm .swipe { position: absolute; inset: 0; pointer-events: none; z-index: 7; background: radial-gradient(circle at 50% 55%, transparent var(--hole), #050204 calc(var(--hole) + 3%)); animation: swipe 0.85s cubic-bezier(0.5, 0, 0.3, 1) forwards; }
+@keyframes swipe { from { --hole: 0%; } to { --hole: 140%; } }
+/* boss arrivals: letterbox bars */
+.storm::before, .storm::after { content: ''; position: absolute; left: 0; right: 0; height: 0; background: #000; z-index: 6; transition: height 0.5s ease; pointer-events: none; }
+.storm::before { top: 0; } .storm::after { bottom: 0; }
+.storm.cine::before, .storm.cine::after { height: 9vh; }
+/* the act's route */
+.storm .sroute { position: relative; width: min(720px, 100%); aspect-ratio: 640 / 220; margin: 14px auto; }
+.storm .sroute svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.storm .sroute line { stroke: rgba(232, 200, 140, 0.25); stroke-width: 2; stroke-dasharray: 5 4; }
+.storm .sroute line.hot { stroke: #ffc870; stroke-width: 3; stroke-dasharray: none; filter: drop-shadow(0 0 3px #ff8a2a); }
+.storm .snode { position: absolute; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 2px; width: 104px; padding: 6px 4px; background: #120a0c; border: 2px solid #4a3a2a; color: #a89a8a; font: 15px VT323, monospace; cursor: default; }
+.storm .snode i { font-style: normal; font-size: 24px; line-height: 1; }
+.storm .snode.can { border-color: #ffc870; color: #fff3d8; cursor: pointer; box-shadow: 0 0 14px rgba(255, 140, 50, 0.45); animation: snode 1.2s ease-in-out infinite alternate; }
+.storm .snode.can:hover { background: #3a1a0c; }
+.storm .snode.here { border-color: #9fffd0; color: #9fffd0; }
+.storm .snode.past { opacity: 0.4; }
+.storm .snode.boss { border-color: #ff4a4a; color: #ff9a8a; }
+.storm .snode.rescue i { color: #9fe0ff; }
+@keyframes snode { from { box-shadow: 0 0 6px rgba(255, 140, 50, 0.3); } to { box-shadow: 0 0 18px rgba(255, 160, 60, 0.7); } }
